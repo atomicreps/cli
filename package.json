@@ -1,0 +1,46 @@
+{
+  "name": "atomicreps",
+  "version": "0.0.3",
+  "description": "One short retrieval question about the thing you just built, inside Claude Code, Cursor, Codex or any MCP client. Loop included.",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "atomicreps": "dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "dev": "node build.mjs && node dist/cli.js",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "preview": "node preview.mjs",
+    "prepublishOnly": "node check-dist.mjs"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@types/node": "^26.5.1",
+    "esbuild": "^0.28.2",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/atomicreps/cli.git"
+  },
+  "homepage": "https://atomicreps.com/coding-agent",
+  "mcpName": "io.github.atomicreps/atomicreps",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "claude-code",
+    "cursor",
+    "codex",
+    "retrieval-practice",
+    "learning"
+  ]
+}
