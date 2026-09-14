@@ -51,18 +51,18 @@ const OPTION_ROW = /^([A-D])\.\s+(.*)$/;
 const NOTE_LINE = /^_(.+)_$/;
 const SPAN = /\*\*(.+?)\*\*|`([^`]+)`/g;
 
-export type Span = { kind: "text" | "bold" | "code"; text: string };
+export type Span = { readonly kind: "text" | "bold" | "code"; readonly text: string };
 
 export type BlockToken =
-  | { kind: "header"; text: string }
-  | { kind: "rule" }
-  | { kind: "blank" }
-  | { kind: "fence" }
-  | { kind: "code"; text: string }
-  | { kind: "option"; letter: string; text: string }
-  | { kind: "note"; text: string }
-  | { kind: "footer"; text: string }
-  | { kind: "text"; text: string };
+  | { readonly kind: "header"; readonly text: string }
+  | { readonly kind: "rule" }
+  | { readonly kind: "blank" }
+  | { readonly kind: "fence" }
+  | { readonly kind: "code"; readonly text: string }
+  | { readonly kind: "option"; readonly letter: string; readonly text: string }
+  | { readonly kind: "note"; readonly text: string }
+  | { readonly kind: "footer"; readonly text: string }
+  | { readonly kind: "text"; readonly text: string };
 
 export function tokenizeBlock(text: string): BlockToken[] {
   const tokens: BlockToken[] = [];
@@ -139,7 +139,27 @@ export function isRepBlock(text: unknown): text is string {
   return lines.length >= 3;
 }
 
-export const FALLBACK_TOOLS: ReadonlyArray<Record<string, unknown>> = [
+type ToolSchema =
+  | { readonly type: "string"; readonly enum?: readonly string[] }
+  | { readonly type: "number" }
+  | { readonly type: "boolean" }
+  | { readonly type: "array"; readonly items: ToolSchema }
+  | ObjectSchema;
+
+type ObjectSchema = {
+  readonly type: "object";
+  readonly properties?: Readonly<Record<string, ToolSchema>>;
+  readonly required?: readonly string[];
+};
+
+export type FallbackTool = {
+  readonly name: string;
+  readonly title: string;
+  readonly description: string;
+  readonly inputSchema: ObjectSchema;
+};
+
+export const FALLBACK_TOOLS = [
   {
     name: "rep",
     title: "One rep about what was just built",
@@ -197,4 +217,4 @@ export const FALLBACK_TOOLS: ReadonlyArray<Record<string, unknown>> = [
       },
     },
   },
-];
+] as const satisfies readonly FallbackTool[];

@@ -103,9 +103,15 @@ export const LEGACY_VERSIONS = ["2025-11-25", "2025-06-18", "2025-03-26"] as con
 export const META_VERSION = "io.modelcontextprotocol/protocolVersion";
 export const META_CLIENT_INFO = "io.modelcontextprotocol/clientInfo";
 export const META_CLIENT_CAPABILITIES = "io.modelcontextprotocol/clientCapabilities";
-export const MODERN_ENVELOPE_KEYS = new Set(["resultType", "ttlMs", "cacheScope", "_meta"]);
+export const MODERN_ENVELOPE_KEYS: ReadonlySet<string> = new Set([
+  "resultType",
+  "ttlMs",
+  "cacheScope",
+  "_meta",
+]);
 export const MAX_INPUT_ROUNDS = 3;
 export const TOOL_NAMES = ["rep", "answer", "me", "settings"] as const;
+export type ToolName = (typeof TOOL_NAMES)[number];
 
 export const SIGN_IN_MESSAGE =
   "Atomic Reps is not signed in on this machine. Run: npx atomicreps login";

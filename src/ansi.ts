@@ -3,25 +3,26 @@ import type { Tone } from "./types.js";
 
 export type Theme = "dark" | "light";
 
-type ThemedTone = "ink" | "soft" | "faint" | "coral" | "gold";
+type ThemedTone = Extract<Tone, "ink" | "soft" | "faint" | "coral" | "gold">;
+type StaticTone = Exclude<Tone, ThemedTone>;
 
-const DARK: Record<ThemedTone, string> = {
+const DARK = {
   ink: "38;5;231",
   soft: "38;5;250",
   faint: "38;5;244",
   coral: "38;5;209",
   gold: "38;5;221",
-};
+} as const satisfies Record<ThemedTone, string>;
 
-const LIGHT: Record<ThemedTone, string> = {
+const LIGHT = {
   ink: "38;5;235",
   soft: "38;5;240",
   faint: "38;5;247",
   coral: "38;5;166",
   gold: "38;5;136",
-};
+} as const satisfies Record<ThemedTone, string>;
 
-const STATIC_CODES: Omit<Record<Tone, string>, ThemedTone> = {
+const STATIC_CODES = {
   green: "38;5;114",
   red: "38;5;203",
   body: "38;5;218",
@@ -30,9 +31,9 @@ const STATIC_CODES: Omit<Record<Tone, string>, ThemedTone> = {
   blush: "38;5;205",
   bold: "1",
   dim: "2",
-};
+} as const satisfies Record<StaticTone, string>;
 
-function codesFor(theme: Theme): Record<Tone, string> {
+function codesFor(theme: Theme): Readonly<Record<Tone, string>> {
   return { ...STATIC_CODES, ...(theme === "light" ? LIGHT : DARK) };
 }
 

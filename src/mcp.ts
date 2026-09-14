@@ -29,14 +29,19 @@ import { cachedGrammar, observeRep, observeVerdict, writeStatusCache } from "./s
 import { EMPTY_GRAMMAR, knownHandle, resolvePhrases, resolveTopic } from "./touch.js";
 import {
   isRecord,
+  oneOf,
+  REP_KINDS,
+  REP_LANES,
   type DoorCall,
   type DoorFailure,
   type JsonRpcId,
   type JsonRpcMessage,
   type ReportableFailure,
+  type RepLane,
   type TouchGrammar,
 } from "./types.js";
 import { SERVER_VERSION } from "./version.js";
+import { parseJsonRpcMessage } from "./wire.js";
 
 export { SERVER_VERSION };
 
@@ -72,7 +77,7 @@ function isReportable(reason: DoorFailure): reason is ReportableFailure {
   return FAILURE_KIND[reason] !== "silent";
 }
 
-const DEGRADED_LIST: Record<string, Record<string, unknown>> = {
+const DEGRADED_LIST: Readonly<Record<string, Readonly<Record<string, unknown>>>> = {
   "tools/list": { tools: FALLBACK_TOOLS },
   "prompts/list": { prompts: [] },
   "resources/list": { resources: [] },
@@ -83,14 +88,19 @@ function unreachableText(reason: string): string {
   return `Atomic Reps is unreachable (${reason}). ${DOCTOR_HINT}`;
 }
 
-const REP_KINDS: ReadonlySet<string> = new Set(["auto", "question", "insight"]);
-const REP_LANES: ReadonlySet<string> = new Set(["asked", "pushed"]);
-
-const NAMED: Record<string, "name" | "uri"> = {
+const NAMED: Readonly<Record<string, "name" | "uri">> = {
   "tools/call": "name",
   "prompts/get": "name",
   "resources/read": "uri",
 };
+
+function parseLine(line: string): JsonRpcMessage | null {
+  try {
+    return parseJsonRpcMessage(JSON.parse(line) as unknown);
+  } catch {
+    return null;
+  }
+}
 
 function log(message: string): void {
   process.stderr.write(`[atomicreps] ${message}\n`);
@@ -102,18 +112,15 @@ function headerValue(value: string): string {
   return `=?base64?${Buffer.from(value, "utf8").toString("base64")}?=`;
 }
 
+type Opened = {
+  readonly clientInfo: Readonly<Record<string, unknown>>;
+  readonly clientCapabilities: Readonly<Record<string, unknown>>;
+};
+
 type Era =
-  | { kind: "opening" }
-  | {
-      kind: "legacy";
-      clientInfo: Record<string, unknown>;
-      clientCapabilities: Record<string, unknown>;
-    }
-  | {
-      kind: "modern";
-      clientInfo: Record<string, unknown>;
-      clientCapabilities: Record<string, unknown>;
-    };
+  | { readonly kind: "opening" }
+  | ({ readonly kind: "legacy" } & Opened)
+  | ({ readonly kind: "modern" } & Opened);
 
 export class Bridge {
   private era: Era = { kind: "opening" };
@@ -121,11 +128,19 @@ export class Bridge {
   private readonly awaitingClient = new Map<string, (message: JsonRpcMessage) => void>();
   private serverRequestId = 0;
 
+  private readonly write: (message: JsonRpcMessage) => void;
+  private readonly cwd: string;
+  private readonly fetchImpl: typeof fetch;
+
   constructor(
-    private readonly write: (message: JsonRpcMessage) => void,
-    private readonly cwd: string = process.cwd(),
-    private readonly fetchImpl: typeof fetch = fetch,
-  ) {}
+    write: (message: JsonRpcMessage) => void,
+    cwd: string = process.cwd(),
+    fetchImpl: typeof fetch = fetch,
+  ) {
+    this.write = write;
+    this.cwd = cwd;
+    this.fetchImpl = fetchImpl;
+  }
 
   private async callDoor(
     message: JsonRpcMessage,
@@ -158,11 +173,11 @@ export class Bridge {
       const serverSide = response.status >= 500;
       const offProtocol: DoorCall = { ok: false, reason: serverSide ? "server" : "misrouted" };
       if (response.redirected && !serverSide) return { ok: false, reason: "misrouted" };
-      let body: JsonRpcMessage = {};
+      let body: JsonRpcMessage;
       try {
-        const parsed: unknown = JSON.parse(await response.text());
-        if (!isRecord(parsed)) return offProtocol;
-        body = parsed as JsonRpcMessage;
+        const parsed = parseJsonRpcMessage(JSON.parse(await response.text()) as unknown);
+        if (parsed === null) return offProtocol;
+        body = parsed;
       } catch {
         return offProtocol;
       }
@@ -238,28 +253,20 @@ export class Bridge {
     now: clock.EpochMs,
   ): void {
     noteFailure(`${method}: ${reason}`, now);
-    switch (FAILURE_KIND[reason]) {
-      case "terminal":
-        this.fail(id, -32_001, TERMINAL_MESSAGE[reason as TerminalFailure]());
-        return;
-      case "transient": {
-        const list = DEGRADED_LIST[method];
-        if (list) this.reply(id, list);
-        else this.fail(id, -32_000, unreachableText(reason));
-        return;
-      }
+    if (isTerminal(reason)) {
+      this.fail(id, -32_001, TERMINAL_MESSAGE[reason]());
+      return;
     }
+    const list = DEGRADED_LIST[method];
+    if (list) this.reply(id, list);
+    else this.fail(id, -32_000, unreachableText(reason));
   }
 
   async handleLine(line: string): Promise<void> {
     const trimmed = line.trim();
     if (trimmed === "") return;
-    let message: JsonRpcMessage;
-    try {
-      const parsed: unknown = JSON.parse(trimmed);
-      if (!isRecord(parsed)) throw new Error("not an object");
-      message = parsed as JsonRpcMessage;
-    } catch {
+    const message = parseLine(trimmed);
+    if (message === null) {
       this.fail(null, -32_700, "Parse error: invalid JSON");
       return;
     }
@@ -345,7 +352,7 @@ export class Bridge {
     raw: Record<string, unknown>,
     grammar: TouchGrammar,
     ask: string | undefined,
-    lane: string | undefined,
+    lane: RepLane | undefined,
     asked: boolean,
   ): Promise<Record<string, unknown>> {
     const args: Record<string, unknown> = {};
@@ -360,7 +367,8 @@ export class Bridge {
     if (lane !== undefined) args.lane = lane;
     const exclude = typeof raw.exclude === "string" ? knownHandle(grammar, raw.exclude) : undefined;
     if (exclude !== undefined) args.exclude = exclude;
-    if (typeof raw.kind === "string" && REP_KINDS.has(raw.kind)) args.kind = raw.kind;
+    const kind = oneOf(REP_KINDS, raw.kind);
+    if (kind !== undefined) args.kind = kind;
     return args;
   }
 
@@ -374,7 +382,7 @@ export class Bridge {
     if (name === "rep") {
       const grammar = cachedGrammar() ?? EMPTY_GRAMMAR;
       const ask = typeof raw.ask === "string" ? knownHandle(grammar, raw.ask) : undefined;
-      const lane = typeof raw.lane === "string" && REP_LANES.has(raw.lane) ? raw.lane : undefined;
+      const lane = oneOf(REP_LANES, raw.lane);
       asked = ask !== undefined || lane === "asked";
       if (!asked) {
         const quietUntil = readConfig().nextEligibleAt;
@@ -440,10 +448,7 @@ export class Bridge {
       const result = door.body.result;
       if (result?.resultType !== "input_required") return door;
       const requests = isRecord(result.inputRequests) ? result.inputRequests : {};
-      const inputResponses: Record<string, unknown> = Object.create(null) as Record<
-        string,
-        unknown
-      >;
+      const inputResponses: Record<string, unknown> = Object.create(null);
       for (const [key, value] of Object.entries(requests)) {
         if (key === "__proto__" || key === "constructor" || key === "prototype") continue;
         if (!isRecord(value) || typeof value.method !== "string") continue;

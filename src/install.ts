@@ -4,7 +4,7 @@ import * as clock from "./clock.js";
 import { readConfig, updateConfig } from "./config.js";
 import { FREE_MAX_LEVEL, TOUCHED_SHOWN, TUI_INFER_BUDGET_MS } from "./constants.js";
 import { inferHints } from "./infer.js";
-import { pickBand, pickOne, pickTree, type PickResult } from "./pick.js";
+import { pickBand, pickOne, pickTree, type PickResult, type Rung } from "./pick.js";
 import {
   COPY_WIDTH,
   hiddenCursor,
@@ -27,36 +27,35 @@ import type {
   DomainEntry,
   Draft,
   Intensity,
+  LevelBand,
   SettingsPatch,
   ToolReply,
   TopicEntry,
 } from "./types.js";
 
-export const DEFAULT_DRAFT: Draft = {
+export const DEFAULT_DRAFT = {
   prefer: [],
   topics: [],
   strict: false,
   intensity: "regular",
   levels: { min: 1, max: 5 },
-};
+} as const satisfies Draft;
 
-export const CADENCES: ReadonlyArray<{
-  value: Intensity;
-  name: string;
-  says: string;
-}> = [
+export const CADENCES = [
   { value: "off", name: "off", says: "never; set it up now, turn it on when you want" },
   { value: "light", name: "light", says: "when you finish a task, at most once an hour" },
   { value: "regular", name: "regular", says: "when you finish a task, at most every 20 minutes" },
   { value: "intense", name: "intense", says: "every time you finish a task" },
-];
+] as const satisfies readonly Cadence[];
+
+type Cadence = { value: Intensity; name: string; says: string };
 
 export function draftOf(summary: {
-  prefer?: readonly string[];
-  topics?: readonly string[];
-  strict?: boolean;
-  intensity?: string;
-  levels?: { min: number; max: number };
+  readonly prefer?: readonly string[];
+  readonly topics?: readonly string[];
+  readonly strict?: boolean;
+  readonly intensity?: string;
+  readonly levels?: LevelBand;
 }): Draft {
   const intensity = CADENCES.find((c) => c.value === summary.intensity)?.value;
   return {
@@ -68,19 +67,19 @@ export function draftOf(summary: {
   };
 }
 
-export const LEVELS: ReadonlyArray<{ level: number; name: string; says: string }> = [
+export const LEVELS = [
   { level: 1, name: "foundations", says: "what a thing is, and what it is for" },
   { level: 2, name: "working", says: "what an option does, and how two of them differ" },
   { level: 3, name: "deep", says: "a setup you could hit, and what actually happens" },
   { level: 4, name: "hard", says: "two mechanisms meeting, and which one wins" },
   { level: 5, name: "brutal", says: "the trade-off, and where the simple story breaks" },
-];
+] as const satisfies readonly Rung[];
 
 export const WELCOME = [
   "One short question about the thing you just built, while it is still warm. Your agent never writes it. Every question is authored and reviewed long before it reaches you.",
   "What leaves this machine is the topic and sub-skill names the question is chosen from, with small weights, and the names of packages, file extensions and folders the public catalog already knows. Anything it does not know stays here, as does every line of your code and every word of your prompts.",
   "AI makes the work faster. How the work feels is part of the evidence too: atomicreps.com/research/the-human-cost",
-];
+] as const;
 
 export const SENT_NOTE =
   "That is the whole of it. We choose the question from those names and the settings you pick next. More at atomicreps.com/docs/data-flows";
@@ -296,7 +295,7 @@ export async function runInstall(deps: {
     if (key === "w") await sentScreen();
   }
 
-  let draft = DEFAULT_DRAFT;
+  let draft: Draft = DEFAULT_DRAFT;
   const screens = [scopeScreen, gateScreen, cadenceScreen, levelsScreen];
   const steps = screens.length + 1;
   for (let i = 0; i < screens.length;) {

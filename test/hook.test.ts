@@ -603,7 +603,9 @@ describe("the block as the terminal prints it", () => {
     const SOFT = `${ESC}[38;5;250m`;
     expect(painted, "the question is ink, never the host's grey").toContain(`${INK}What does `);
     expect(painted, "inline code is gold").toContain(`${GOLD}--no-cache${ESC}[0m`);
-    expect(painted, "bold inside the question keeps ink").toContain(`${INK}${ESC}[1mbuild${ESC}[0m`);
+    expect(painted, "bold inside the question keeps ink").toContain(
+      `${INK}${ESC}[1mbuild${ESC}[0m`,
+    );
     expect(painted, "an answer's letter is coral, its text ink").toContain(
       `${ESC}[1m${CORAL}A.${ESC}[0m ${INK}One${ESC}[0m`,
     );

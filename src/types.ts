@@ -11,26 +11,35 @@ export function stringList(value: unknown): string[] {
     : [];
 }
 
+export function oneOf<T extends string>(values: readonly T[], value: unknown): T | undefined {
+  if (typeof value !== "string") return undefined;
+  return values.find((entry) => entry === value);
+}
+
 export const PICKS = ["A", "B", "C", "D"] as const;
 export type Pick = (typeof PICKS)[number];
 
 export function asPick(value: unknown): Pick | null {
-  if (typeof value !== "string") return null;
-  const upper = value.toUpperCase();
-  return (PICKS as readonly string[]).includes(upper) ? (upper as Pick) : null;
+  return typeof value === "string" ? (oneOf(PICKS, value.toUpperCase()) ?? null) : null;
 }
 
+export const REP_KINDS = ["auto", "question", "insight"] as const;
+export type RepKind = (typeof REP_KINDS)[number];
+
+export const REP_LANES = ["asked", "pushed"] as const;
+export type RepLane = (typeof REP_LANES)[number];
+
 export type ClientState = {
-  grammarVersion?: string;
-  muteKeys?: string[];
-  release?: { version?: string; notes?: string };
+  readonly grammarVersion?: string;
+  readonly muteKeys?: readonly string[];
+  readonly release?: { readonly version?: string; readonly notes?: string };
 };
 
 export type ToolReply = {
-  text: string;
-  data: Record<string, unknown> | null;
-  isError?: boolean;
-  client?: ClientState;
+  readonly text: string;
+  readonly data: Record<string, unknown> | null;
+  readonly isError?: boolean;
+  readonly client?: ClientState;
 };
 
 export type DoorFailure =
@@ -45,52 +54,64 @@ export type DoorFailure =
 export type ReportableFailure = Exclude<DoorFailure, "cancelled">;
 
 export type ApiResult<T> =
-  | { ok: true; value: T; ms: number; status: number }
-  | { ok: false; reason: ReportableFailure; ms: number; detail?: string };
+  | { readonly ok: true; readonly value: T; readonly ms: number; readonly status: number }
+  | {
+      readonly ok: false;
+      readonly reason: ReportableFailure;
+      readonly ms: number;
+      readonly detail?: string;
+    };
 
 export type DeviceStart = {
-  userCode: string;
-  deviceSecret: string;
-  verifyUrl: string;
-  expiresAt: EpochMs;
-  intervalMs: number;
+  readonly userCode: string;
+  readonly deviceSecret: string;
+  readonly verifyUrl: string;
+  readonly expiresAt: EpochMs;
+  readonly intervalMs: number;
 };
 
 export type DevicePoll =
-  | { status: "pending" }
-  | { status: "expired" }
-  | { status: "rate_limited" }
-  | { status: "approved"; token: string };
+  | { readonly status: "pending" }
+  | { readonly status: "expired" }
+  | { readonly status: "rate_limited" }
+  | { readonly status: "approved"; readonly token: string };
 
 export type RepRequest = {
-  topic?: string;
-  touched?: string[];
-  ask?: string;
-  hints?: LocalHints;
-  kind?: "auto" | "question" | "insight";
-  exclude?: string;
-  lane?: "asked";
+  readonly topic?: string;
+  readonly touched?: readonly string[];
+  readonly ask?: string;
+  readonly hints?: LocalHints;
+  readonly kind?: RepKind;
+  readonly exclude?: string;
+  readonly lane?: Extract<RepLane, "asked">;
 };
 
 export type Show = "summary" | "skills" | "reps" | "streak" | "mutes";
 
-export type TopicEntry = { slug: string; name: string; free: boolean; domain?: string };
-export type DomainEntry = { slug: string; name: string };
+export type TopicEntry = {
+  readonly slug: string;
+  readonly name: string;
+  readonly free: boolean;
+  readonly domain?: string;
+};
+export type DomainEntry = { readonly slug: string; readonly name: string };
+
+export type LevelBand = { readonly min: number; readonly max: number };
 
 export type Intensity = (typeof INTENSITIES)[number];
 
 export type SettingsPatch = {
-  intensity?: Intensity;
-  confidencePrompt?: string;
-  muteMinutes?: number;
-  mute?: string;
-  days?: number;
-  unmute?: string;
-  prefer?: string[];
-  dialog?: boolean;
-  strict?: boolean;
-  topics?: string[];
-  levels?: { min: number; max: number };
+  readonly intensity?: Intensity;
+  readonly confidencePrompt?: string;
+  readonly muteMinutes?: number;
+  readonly mute?: string;
+  readonly days?: number;
+  readonly unmute?: string;
+  readonly prefer?: readonly string[];
+  readonly dialog?: boolean;
+  readonly strict?: boolean;
+  readonly topics?: readonly string[];
+  readonly levels?: LevelBand;
 };
 
 export type JsonRpcId = string | number | null;
@@ -123,23 +144,23 @@ export type Config = {
   bridgeVersion?: string | undefined;
 };
 
-export type OfferEntry = { handle: string; name: string };
+export type OfferEntry = { readonly handle: string; readonly name: string };
 
 export type StoredRep = {
-  id: string;
-  topicSlug: string;
-  handle?: string;
-  lane?: "pushed" | "asked";
-  text: string;
-  servedAt: EpochMs;
-  answeredAt?: EpochMs;
-  correct?: boolean;
-  verdict?: string;
-  offer?: OfferEntry[];
+  readonly id: string;
+  readonly topicSlug: string;
+  readonly handle?: string;
+  readonly lane?: RepLane;
+  readonly text: string;
+  readonly servedAt: EpochMs;
+  readonly answeredAt?: EpochMs;
+  readonly correct?: boolean;
+  readonly verdict?: string;
+  readonly offer?: readonly OfferEntry[];
 };
 
-export type PathRule = { pattern: string; key: string; weight: number };
-export type WordRule = { words: string; key: string; weight: number };
+export type PathRule = { readonly pattern: string; readonly key: string; readonly weight: number };
+export type WordRule = { readonly words: string; readonly key: string; readonly weight: number };
 
 export type TouchVocabulary = {
   handles: readonly string[];
@@ -148,13 +169,13 @@ export type TouchVocabulary = {
 };
 
 export type TouchGrammar = {
-  version: string;
-  paths: readonly PathRule[];
-  words: readonly WordRule[];
-  vocabulary: TouchVocabulary;
+  readonly version: string;
+  readonly paths: readonly PathRule[];
+  readonly words: readonly WordRule[];
+  readonly vocabulary: TouchVocabulary;
 };
 
-export type TouchedEntry = { key: string; weight: number };
+export type TouchedEntry = { readonly key: string; readonly weight: number };
 
 export type TouchInput = {
   paths: readonly string[];
@@ -163,13 +184,17 @@ export type TouchInput = {
   deadline: Deadline;
 };
 
-export type LocalHints = { packages: string[]; extensions: string[]; touched: TouchedEntry[] };
+export type LocalHints = {
+  readonly packages: readonly string[];
+  readonly extensions: readonly string[];
+  readonly touched: readonly TouchedEntry[];
+};
 
 export type HookInput = {
-  hook_event_name?: string;
-  prompt?: string;
-  cwd?: string;
-  last_assistant_message?: string;
+  readonly hook_event_name?: string;
+  readonly prompt?: string;
+  readonly cwd?: string;
+  readonly last_assistant_message?: string;
 };
 
 export type HookOutput =
@@ -177,11 +202,11 @@ export type HookOutput =
   | { systemMessage: string };
 
 export type Draft = {
-  prefer: string[];
-  topics: string[];
-  strict: boolean;
-  intensity: Intensity;
-  levels: { min: number; max: number };
+  readonly prefer: readonly string[];
+  readonly topics: readonly string[];
+  readonly strict: boolean;
+  readonly intensity: Intensity;
+  readonly levels: LevelBand;
 };
 
 export type LoopPose = "idle" | "thinking" | "impressed" | "facepalm" | "celebrating" | "sleeping";

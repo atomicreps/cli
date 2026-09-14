@@ -198,8 +198,8 @@ export async function pickOne<T>(opts: {
   heading: string;
   intro: string;
   stepLine?: string | undefined;
-  pose?: LoopPose;
-  note?: string;
+  pose?: LoopPose | undefined;
+  note?: string | undefined;
 }): Promise<PickResult<T>> {
   const at = Math.max(
     0,
@@ -258,8 +258,8 @@ export async function pickMany(opts: {
   heading: string;
   intro: string;
   confirm: string;
-  pose?: LoopPose;
-  stepLine?: string;
+  pose?: LoopPose | undefined;
+  stepLine?: string | undefined;
   summary?: (picked: ReadonlySet<string>) => {
     text: string;
     ready: boolean;

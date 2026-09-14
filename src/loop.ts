@@ -7,23 +7,23 @@ type Face = {
   blush: string;
 };
 
-const FACES: Record<LoopPose, Face> = {
+const FACES = {
   idle: { eyes: "◕   ◕", mouth: " ‿ ", blush: "♡" },
   thinking: { eyes: "◔   ◕", mouth: " ~ ", blush: " " },
   impressed: { eyes: "✦   ✦", mouth: " ▽ ", blush: "♡" },
   facepalm: { eyes: "-   -", mouth: " ⌒ ", blush: " " },
   celebrating: { eyes: "^   ^", mouth: " ▽ ", blush: "♡" },
   sleeping: { eyes: "–   –", mouth: " z ", blush: " " },
-};
+} as const satisfies Record<LoopPose, Face>;
 
-const GILLS: Record<LoopPose, [string, string, string]> = {
+const GILLS = {
   idle: ["  ~≈", " ~≈≈", "  ~≈"],
   thinking: ["  ~≈", " ~≈≈", "  ~≈"],
   impressed: [" ~≈≈", "~≈≈≈", " ~≈≈"],
   facepalm: ["  ~≈", " ~≈≈", "  ~≈"],
   celebrating: [" ~≈≈", "~≈≈≈", " ~≈≈"],
   sleeping: ["   ~", "  ~≈", "   ~"],
-};
+} as const satisfies Record<LoopPose, readonly [string, string, string]>;
 
 function mirror(gill: string): string {
   return [...gill].toReversed().join("");

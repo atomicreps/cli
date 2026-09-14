@@ -32,7 +32,7 @@ export function title(text: string): string {
   return paint(text, "bold", "ink");
 }
 
-export function keyHint(pairs: Array<[string, string]>): string {
+export function keyHint(pairs: ReadonlyArray<readonly [string, string]>): string {
   return pairs
     .map(([k, label]) => `${paint(k, "coral", "bold")} ${paint(label, "soft")}`)
     .join("   ");

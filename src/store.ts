@@ -204,7 +204,7 @@ export function pendingRep(now = clock.now()): StoredRep | undefined {
   return now - last.servedAt <= PENDING_TTL_MS ? last : undefined;
 }
 
-export function openOffer(now = clock.now()): OfferEntry[] {
+export function openOffer(now = clock.now()): readonly OfferEntry[] {
   const last = listReps().at(-1);
   if (!last?.answeredAt || !last.offer || last.offer.length === 0) return [];
   return now - last.answeredAt <= OFFER_TTL_MS ? last.offer : [];

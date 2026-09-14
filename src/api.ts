@@ -12,6 +12,7 @@ import type {
   ToolReply,
   TopicEntry,
 } from "./types.js";
+import { parseCatalog, parseDevicePoll, parseDeviceStart, parseToolReply } from "./wire.js";
 
 type CallInit = {
   method: "GET" | "POST";
@@ -23,7 +24,7 @@ type CallInit = {
   allowNotModified?: boolean | undefined;
 };
 
-async function call<T>(path: string, init: CallInit): Promise<ApiResult<T>> {
+async function call(path: string, init: CallInit): Promise<ApiResult<unknown>> {
   const started = clock.now();
   const signal = clock.within(init.deadlineMs ?? CALL_DEADLINE_MS, init.signal);
   try {
@@ -38,11 +39,11 @@ async function call<T>(path: string, init: CallInit): Promise<ApiResult<T>> {
     });
     const ms = clock.now() - started;
     if (response.status === 304 && init.allowNotModified) {
-      return { ok: true, value: null as T, ms, status: 304 };
+      return { ok: true, value: null, ms, status: 304 };
     }
     if (response.status === 401) return { ok: false, reason: "unauthorized", ms };
     if (response.status === 503) return { ok: false, reason: "closed", ms };
-    const offProtocol = (): ApiResult<T> => ({
+    const offProtocol = (): ApiResult<unknown> => ({
       ok: false,
       reason: response.status >= 500 ? "server" : "misrouted",
       ms,
@@ -50,9 +51,9 @@ async function call<T>(path: string, init: CallInit): Promise<ApiResult<T>> {
     });
     if (!response.ok) return offProtocol();
     if (response.redirected) return offProtocol();
-    let value: T;
+    let value: unknown;
     try {
-      value = (await response.json()) as T;
+      value = await response.json();
     } catch {
       return offProtocol();
     }
@@ -73,23 +74,42 @@ function token(): string | undefined {
   return readConfig().token;
 }
 
+async function parsed<T>(
+  result: Promise<ApiResult<unknown>>,
+  parse: (value: unknown) => T | null,
+): Promise<ApiResult<T>> {
+  const answered = await result;
+  if (!answered.ok) return answered;
+  const value = parse(answered.value);
+  if (value === null) {
+    return { ok: false, reason: "server", ms: answered.ms, detail: "unreadable payload" };
+  }
+  return { ok: true, value, ms: answered.ms, status: answered.status };
+}
+
 export function startDeviceLogin(
   clientName: string,
   host: string,
 ): Promise<ApiResult<DeviceStart>> {
-  return call("/mcp/device/start", {
-    method: "POST",
-    body: { clientName, host },
-    deadlineMs: LOGIN_DEADLINE_MS,
-  });
+  return parsed(
+    call("/mcp/device/start", {
+      method: "POST",
+      body: { clientName, host },
+      deadlineMs: LOGIN_DEADLINE_MS,
+    }),
+    parseDeviceStart,
+  );
 }
 
 export function pollDeviceLogin(deviceSecret: string): Promise<ApiResult<DevicePoll>> {
-  return call("/mcp/device/poll", {
-    method: "POST",
-    body: { deviceSecret },
-    deadlineMs: LOGIN_DEADLINE_MS,
-  });
+  return parsed(
+    call("/mcp/device/poll", {
+      method: "POST",
+      body: { deviceSecret },
+      deadlineMs: LOGIN_DEADLINE_MS,
+    }),
+    parseDevicePoll,
+  );
 }
 
 export function rep(
@@ -97,7 +117,10 @@ export function rep(
   deadlineMs?: number,
   signal?: AbortSignal,
 ): Promise<ApiResult<ToolReply>> {
-  return call("/mcp/rep", { method: "POST", body: request, token: token(), deadlineMs, signal });
+  return parsed(
+    call("/mcp/rep", { method: "POST", body: request, token: token(), deadlineMs, signal }),
+    parseToolReply,
+  );
 }
 
 export function answer(
@@ -105,26 +128,32 @@ export function answer(
   pick: string,
   sure?: boolean,
 ): Promise<ApiResult<ToolReply>> {
-  return call("/mcp/answer", {
-    method: "POST",
-    body: {
-      ...(id === undefined ? {} : { id }),
-      pick,
-      ...(sure === undefined ? {} : { sure }),
-    },
-    token: token(),
-    deadlineMs: ANSWER_DEADLINE_MS,
-  });
+  return parsed(
+    call("/mcp/answer", {
+      method: "POST",
+      body: {
+        ...(id === undefined ? {} : { id }),
+        pick,
+        ...(sure === undefined ? {} : { sure }),
+      },
+      token: token(),
+      deadlineMs: ANSWER_DEADLINE_MS,
+    }),
+    parseToolReply,
+  );
 }
 
 export function me(show: Show = "summary", deadlineMs?: number): Promise<ApiResult<ToolReply>> {
-  return call(`/mcp/me?show=${show}`, { method: "GET", token: token(), deadlineMs });
+  return parsed(
+    call(`/mcp/me?show=${show}`, { method: "GET", token: token(), deadlineMs }),
+    parseToolReply,
+  );
 }
 
 export function topics(
   deadlineMs?: number,
 ): Promise<ApiResult<{ topics: TopicEntry[]; domains?: DomainEntry[] }>> {
-  return call("/mcp/topics", { method: "GET", token: token(), deadlineMs });
+  return parsed(call("/mcp/topics", { method: "GET", token: token(), deadlineMs }), parseCatalog);
 }
 
 export function grammar(knownVersion?: string, deadlineMs?: number): Promise<ApiResult<unknown>> {
@@ -138,10 +167,13 @@ export function grammar(knownVersion?: string, deadlineMs?: number): Promise<Api
 }
 
 export function settings(patch: SettingsPatch): Promise<ApiResult<ToolReply>> {
-  return call("/mcp/settings", {
-    method: "POST",
-    body: patch,
-    token: token(),
-    deadlineMs: ANSWER_DEADLINE_MS,
-  });
+  return parsed(
+    call("/mcp/settings", {
+      method: "POST",
+      body: patch,
+      token: token(),
+      deadlineMs: ANSWER_DEADLINE_MS,
+    }),
+    parseToolReply,
+  );
 }

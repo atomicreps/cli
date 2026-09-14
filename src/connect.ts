@@ -72,10 +72,7 @@ export function allowInClaude(): { added: string[]; path: string; skipped?: stri
       if (skipped !== null) return { added: [], path, skipped };
     } else settings = parsed;
   }
-  const permissions =
-    typeof settings.permissions === "object" && settings.permissions !== null
-      ? (settings.permissions as Record<string, unknown>)
-      : {};
+  const permissions = isRecord(settings.permissions) ? settings.permissions : {};
   const allow = stringList(permissions.allow);
   const added = toolAllowlist().filter((tool) => !allow.includes(tool));
   if (added.length === 0) return { added, path };

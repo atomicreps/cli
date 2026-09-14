@@ -1,11 +1,39 @@
 {
+  // Stricter than tsconfig.base.json on purpose. This package is small, has no
+  // dependencies and ships to other people's machines through npx, so the two
+  // flags the app tree parked as too expensive (noUncheckedIndexedAccess,
+  // exactOptionalPropertyTypes) are free here and both are on.
+  //
+  // Everything below was measured against `tsc --noEmit` before landing and
+  // costs zero errors. The one candidate NOT adopted, with its measured cost:
+  //   noPropertyAccessFromIndexSignature  241 errors
+  // It would turn every `params.name` on a wire record into `params["name"]`,
+  // which is louder than the bug it catches here (the records it would police
+  // are all read through typeof guards already). Parked, not forgotten.
   "compilerOptions": {
     "target": "ES2024",
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
+    "moduleDetection": "force",
     "strict": true,
     "noUncheckedIndexedAccess": true,
     "exactOptionalPropertyTypes": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "noImplicitReturns": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "useUnknownInCatchVariables": true,
+    "allowUnreachableCode": false,
+    "allowUnusedLabels": false,
+    "forceConsistentCasingInFileNames": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
+    // No TypeScript in this package emits runtime code, so the source runs
+    // under a type stripper as well as through the esbuild build. It bans
+    // enums, namespaces and constructor parameter properties.
+    "erasableSyntaxOnly": true,
+    "noUncheckedSideEffectImports": true,
     "skipLibCheck": true,
     "types": [
       "node"
@@ -17,12 +45,7 @@
       "ES2025.RegExp",
       "ESNext.Disposable",
       "ESNext.Error"
-    ],
-    "noImplicitOverride": true,
-    "noFallthroughCasesInSwitch": true,
-    "noImplicitReturns": true,
-    "useUnknownInCatchVariables": true,
-    "verbatimModuleSyntax": true
+    ]
   },
   "include": [
     "src/**/*.ts",

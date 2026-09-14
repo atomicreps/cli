@@ -56,14 +56,17 @@ import {
 import { ensureGrammar, observeRep, observeVerdict, offerOf } from "./store.js";
 import {
   asPick,
+  stringList,
   type ApiResult,
   type Intensity,
+  type LevelBand,
   type LocalHints,
   type LoopPose,
   type OfferEntry,
   type Pick,
   type ToolReply,
 } from "./types.js";
+import { bool, list, num, record, str } from "./wire.js";
 
 async function fetched<T>(
   result: ApiResult<T>,
@@ -128,32 +131,65 @@ export async function login(interactive = isInteractive()): Promise<boolean> {
 }
 
 type Summary = {
-  name: string;
-  isPro: boolean;
-  intensity: string;
-  cap: number | null;
-  gapMinutes: number;
-  answeredToday: number;
-  askedToday: number;
-  askedCap: number;
-  weekReps: number;
-  currentStreak: number;
-  longestStreak: number;
-  mutedUntil?: number;
-  quietUntil?: number;
-  nextEligibleAt: number;
-  prefer: string[];
-  muteCount: number;
-  upgradeUrl: string | null;
-  topics?: string[];
-  strict?: boolean;
-  levels?: { min: number; max: number };
+  readonly name: string;
+  readonly isPro: boolean;
+  readonly intensity: string;
+  readonly cap: number | null;
+  readonly gapMinutes: number;
+  readonly answeredToday: number;
+  readonly askedToday: number;
+  readonly askedCap: number;
+  readonly weekReps: number;
+  readonly currentStreak: number;
+  readonly longestStreak: number;
+  readonly mutedUntil?: number;
+  readonly prefer: readonly string[];
+  readonly muteCount: number;
+  readonly upgradeUrl: string | null;
+  readonly topics?: readonly string[];
+  readonly strict?: boolean;
+  readonly levels?: LevelBand;
 };
+
+function parseBand(value: unknown): LevelBand | undefined {
+  const raw = record(value);
+  if (raw === undefined) return undefined;
+  const min = num(raw.min);
+  const max = num(raw.max);
+  return min === undefined || max === undefined ? undefined : { min, max };
+}
+
+function parseSummary(value: unknown): Summary {
+  const raw = record(value) ?? {};
+  const mutedUntil = num(raw.mutedUntil);
+  const strict = bool(raw.strict);
+  const levels = parseBand(raw.levels);
+  return {
+    name: str(raw.name) ?? "",
+    isPro: bool(raw.isPro) ?? false,
+    intensity: str(raw.intensity) ?? "",
+    cap: num(raw.cap) ?? null,
+    gapMinutes: num(raw.gapMinutes) ?? 0,
+    answeredToday: num(raw.answeredToday) ?? 0,
+    askedToday: num(raw.askedToday) ?? 0,
+    askedCap: num(raw.askedCap) ?? 0,
+    weekReps: num(raw.weekReps) ?? 0,
+    currentStreak: num(raw.currentStreak) ?? 0,
+    longestStreak: num(raw.longestStreak) ?? 0,
+    prefer: stringList(raw.prefer),
+    muteCount: num(raw.muteCount) ?? 0,
+    upgradeUrl: str(raw.upgradeUrl) ?? null,
+    ...(mutedUntil === undefined ? {} : { mutedUntil }),
+    ...(Array.isArray(raw.topics) ? { topics: stringList(raw.topics) } : {}),
+    ...(strict === undefined ? {} : { strict }),
+    ...(levels === undefined ? {} : { levels }),
+  };
+}
 
 async function fetchSummary(): Promise<Summary | null> {
   const result = await api.me("summary", LOGIN_DEADLINE_MS);
   if (!result.ok || !result.value.data) return null;
-  return result.value.data as unknown as Summary;
+  return parseSummary(result.value.data);
 }
 
 function summaryLines(s: Summary): string[] {
@@ -168,12 +204,6 @@ function summaryLines(s: Summary): string[] {
     `Areas: ${s.prefer.length > 0 ? s.prefer.join(", ") : "the whole catalog"}${s.strict ? paint("  · only these", "faint") : ""}${s.muteCount > 0 ? paint(`  · ${s.muteCount} mute${s.muteCount === 1 ? "" : "s"}`, "faint") : ""}`,
   ];
 }
-
-type RepData = {
-  kind: "question" | "insight" | "quiet";
-  id?: string;
-  reason?: string;
-};
 
 async function localHints(): Promise<LocalHints> {
   return await inferHints(process.cwd(), TUI_INFER_BUDGET_MS, await ensureGrammar());
@@ -190,13 +220,15 @@ async function repScreen(ask?: string): Promise<void> {
     ),
   );
   if (!served) return;
-  const data = (served.data ?? {}) as RepData;
-  observeRep(served.data ?? {}, served.text, now);
-  if (data.kind !== "question" || !data.id) {
+  const data = served.data ?? {};
+  observeRep(data, served.text, now);
+  const id = str(data.id);
+  if (data.kind !== "question" || id === undefined) {
+    const reason = str(data.reason);
     const why =
-      data.reason === "spent"
+      reason === "spent"
         ? "Today's asked reps are done."
-        : data.reason === "off"
+        : reason === "off"
           ? "The door is off. Set an intensity to open it."
           : "Nothing to serve right now.";
     out(withLoop("sleeping", [title("Quiet."), why]));
@@ -219,10 +251,10 @@ async function repScreen(ask?: string): Promise<void> {
     if (isBack(key)) return;
     pick = asPick(key);
   }
-  const answered = await fetched(await api.answer(data.id, pick), "Could not grade that.");
+  const answered = await fetched(await api.answer(id, pick), "Could not grade that.");
   if (!answered) return;
   const verdict = answered.data ?? {};
-  observeVerdict(data.id, verdict, answered.text, now);
+  observeVerdict(id, verdict, answered.text, now);
   const offer: OfferEntry[] = offerOf(verdict);
   const correct = verdict.correct === true;
   const graded = verdict.status === "answered";
@@ -285,12 +317,22 @@ async function skillsScreen(): Promise<void> {
   await pause();
 }
 
-type MuteRow = { key: string; name: string; until?: number };
+type MuteRow = { readonly key: string; readonly name: string; readonly until?: number };
+
+function parseMuteRow(value: unknown): MuteRow | null {
+  const raw = record(value);
+  if (raw === undefined) return null;
+  const key = str(raw.key);
+  const name = str(raw.name);
+  if (key === undefined || name === undefined) return null;
+  const until = num(raw.until);
+  return { key, name, ...(until === undefined ? {} : { until }) };
+}
 
 async function mutesScreen(): Promise<void> {
   const shown = await fetched(await api.me("mutes", LOGIN_DEADLINE_MS));
   if (!shown) return;
-  const mutes = ((shown.data as { mutes?: MuteRow[] } | null)?.mutes ?? []).slice(0, 9);
+  const mutes = list(shown.data?.mutes, parseMuteRow).slice(0, 9);
   if (mutes.length === 0) {
     out(
       withLoop("idle", [
@@ -493,11 +535,7 @@ export async function doctor(): Promise<number> {
     const ping = await api.me("summary", LOGIN_DEADLINE_MS);
     if (ping.ok) {
       lines.push(`server: ok in ${ping.ms}ms`);
-      const version = ping.value.data?.grammarVersion;
-      const grammar = await ensureGrammar(
-        clock.now(),
-        typeof version === "string" ? version : undefined,
-      );
+      const grammar = await ensureGrammar(clock.now(), str(ping.value.data?.grammarVersion));
       lines.push(
         grammar
           ? `grammar: ${grammar.version} (${grammar.words.length} phrases, ${grammar.paths.length} paths)`
@@ -536,9 +574,13 @@ export async function doctor(): Promise<number> {
   return failures === 0 ? 0 : 1;
 }
 
-type MenuItem = { key: string; label: string; run: (summary: Summary) => Promise<void> };
+type MenuItem = {
+  readonly key: string;
+  readonly label: string;
+  readonly run: (summary: Summary) => Promise<void>;
+};
 
-const MENU: readonly MenuItem[] = [
+const MENU = [
   { key: "enter", label: "one rep now", run: () => repScreen() },
   { key: "t", label: "this session", run: () => sessionScreen() },
   { key: "s", label: "skills", run: () => skillsScreen() },
@@ -563,7 +605,7 @@ const MENU: readonly MenuItem[] = [
       await install();
     },
   },
-];
+] as const satisfies readonly MenuItem[];
 
 function menuItem(key: string): MenuItem | undefined {
   const pressed = isEnter(key) ? "enter" : key;

@@ -40,6 +40,7 @@ import {
   type ToolReply,
 } from "./types.js";
 import { isBehind } from "./version.js";
+import { record, str } from "./wire.js";
 
 const LETTER = /^\s*([A-Da-d])([!?])?(?:[.):]|\s|$)/;
 const DIGIT = /^\s*([1-3])(?:[.):]|\s|$)/;
@@ -65,12 +66,24 @@ function quiet(): HookOutput {
 }
 
 function parseInput(raw: string): HookInput {
+  let parsed: unknown;
   try {
-    const parsed: unknown = JSON.parse(raw);
-    return typeof parsed === "object" && parsed !== null ? (parsed as HookInput) : {};
+    parsed = JSON.parse(raw);
   } catch {
     return {};
   }
+  const input = record(parsed);
+  if (input === undefined) return {};
+  const event = str(input.hook_event_name);
+  const prompt = str(input.prompt);
+  const cwd = str(input.cwd);
+  const last = str(input.last_assistant_message);
+  return {
+    ...(event === undefined ? {} : { hook_event_name: event }),
+    ...(prompt === undefined ? {} : { prompt }),
+    ...(cwd === undefined ? {} : { cwd }),
+    ...(last === undefined ? {} : { last_assistant_message: last }),
+  };
 }
 
 export function letterOf(prompt: string): { pick: Pick; sure?: boolean } | null {
@@ -95,8 +108,7 @@ export function endsOnQuestion(text: string | undefined): boolean {
 
 function themeStringFrom(path: string): string | undefined {
   try {
-    const parsed = JSON.parse(readFileSync(path, "utf8")) as { theme?: unknown };
-    return typeof parsed.theme === "string" ? parsed.theme : undefined;
+    return str(record(JSON.parse(readFileSync(path, "utf8")) as unknown)?.theme);
   } catch {
     return undefined;
   }

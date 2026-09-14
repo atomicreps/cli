@@ -29,6 +29,7 @@ import {
 } from "./constants.js";
 import { applyGrammar, EMPTY_GRAMMAR, knownExtensions, knownPackages } from "./touch.js";
 import type { LocalHints, TouchGrammar } from "./types.js";
+import { record } from "./wire.js";
 
 function runGit(cwd: string, args: string[], budgetMs: number): Promise<string> {
   const { promise, resolve } = Promise.withResolvers<string>();
@@ -142,14 +143,15 @@ function importSpecifiers(source: string): string[] {
 function manifestDeps(cwd: string): string[] {
   try {
     const raw = readFileSync(join(cwd, "package.json"), "utf8");
-    const parsed = JSON.parse(raw) as {
-      dependencies?: Record<string, string>;
-      devDependencies?: Record<string, string>;
-    };
-    return Object.keys({ ...parsed.dependencies, ...parsed.devDependencies }).slice(
-      0,
-      MAX_MANIFEST_DEPS,
-    );
+    const parsed = record(JSON.parse(raw) as unknown);
+    if (parsed === undefined) return [];
+    const names = new Set<string>();
+    for (const field of [parsed.dependencies, parsed.devDependencies]) {
+      const deps = record(field);
+      if (deps === undefined) continue;
+      for (const name of Object.keys(deps)) names.add(name);
+    }
+    return [...names].slice(0, MAX_MANIFEST_DEPS);
   } catch {
     return [];
   }
