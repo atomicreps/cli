@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.0.6
+
+- A pushed rep no longer re-asks something from another day's work. The re-ask lane ran ahead of the pick with the session's touched set as a tie-break only, so a TypeScript miss from July could come back after an afternoon of SQL, with no line saying why. Now a pushed rep re-asks only a lane inside what the session touched; the rest wait for a session that fits. Asking for a rep with nothing named still serves whatever is pending, which is where those go. Server-side; nothing to upgrade for this one.
+- `npx atomicreps` can run the setup again: `w` on the home screen. It was a subcommand (`npx atomicreps setup`) with no way to it from the screen.
+- Areas, rate and depth on the home screen are the wizard's own pickers now: arrows, space, enter, Esc, with the tree, the search and the current values already ticked. They were letter-keyed lists that covered thirteen areas, no topics and no band. Depth is new on the home screen; before, the band was the wizard's alone. The two hours of quiet moved to the rate screen as a row.
+- The door's `me` summary now carries the pinned topics and the difficulty band, so a picker opens on what is set rather than blank and saving one screen cannot wipe another.
+
 ## 0.0.5
 
 - The areas you pick can now decide what arrives, not just what comes first. Until today a rep followed whatever the session touched and your areas only broke the tie, so a day in Postgres could ask you about Postgres even if you had only picked Frontend. Setup now asks which you want. "These first" is what you already had and stays the default; "Only these" means a session spent outside your areas gets no rep at all rather than one you did not ask for.

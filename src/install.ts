@@ -41,21 +41,32 @@ export const DEFAULT_DRAFT: Draft = {
 };
 
 export const CADENCES: ReadonlyArray<{
-  key: string;
   value: Intensity;
   name: string;
   says: string;
 }> = [
-  { key: "0", value: "off", name: "off", says: "never; set it up now, turn it on when you want" },
-  { key: "1", value: "light", name: "light", says: "when you finish a task, at most once an hour" },
-  {
-    key: "2",
-    value: "regular",
-    name: "regular",
-    says: "when you finish a task, at most every 20 minutes",
-  },
-  { key: "3", value: "intense", name: "intense", says: "every time you finish a task" },
+  { value: "off", name: "off", says: "never; set it up now, turn it on when you want" },
+  { value: "light", name: "light", says: "when you finish a task, at most once an hour" },
+  { value: "regular", name: "regular", says: "when you finish a task, at most every 20 minutes" },
+  { value: "intense", name: "intense", says: "every time you finish a task" },
 ];
+
+export function draftOf(summary: {
+  prefer?: readonly string[];
+  topics?: readonly string[];
+  strict?: boolean;
+  intensity?: string;
+  levels?: { min: number; max: number };
+}): Draft {
+  const intensity = CADENCES.find((c) => c.value === summary.intensity)?.value;
+  return {
+    prefer: [...(summary.prefer ?? DEFAULT_DRAFT.prefer)],
+    topics: [...(summary.topics ?? DEFAULT_DRAFT.topics)],
+    strict: summary.strict ?? DEFAULT_DRAFT.strict,
+    intensity: intensity ?? DEFAULT_DRAFT.intensity,
+    levels: summary.levels ?? DEFAULT_DRAFT.levels,
+  };
+}
 
 export const LEVELS: ReadonlyArray<{ level: number; name: string; says: string }> = [
   { level: 1, name: "foundations", says: "what a thing is, and what it is for" },
@@ -142,7 +153,7 @@ export function catalogTree(
 const SCOPE_INTRO =
   "Take a whole area, or open one and pick the topics inside it. Type any letters to search all of them at once. What you are building still wins; this is where a rep comes from when your working tree is quiet.";
 
-async function scopeScreen(draft: Draft, stepLine: string): Promise<PickResult<Draft>> {
+export async function scopeScreen(draft: Draft, stepLine?: string): Promise<PickResult<Draft>> {
   const groups = catalogTree(await domainCatalog(), await topicCatalog());
   if (groups.length === 0) {
     out(
@@ -166,7 +177,7 @@ async function scopeScreen(draft: Draft, stepLine: string): Promise<PickResult<D
   return { ok: true, value: { ...draft, ...draftFrom(groups, picked.value) } };
 }
 
-async function gateScreen(draft: Draft, stepLine: string): Promise<PickResult<Draft>> {
+export async function gateScreen(draft: Draft, stepLine?: string): Promise<PickResult<Draft>> {
   if (draft.prefer.length === 0) return { ok: true, value: draft };
   const picked = await pickOne<boolean>({
     choices: [
@@ -191,7 +202,7 @@ async function gateScreen(draft: Draft, stepLine: string): Promise<PickResult<Dr
   return { ok: true, value: { ...draft, strict: picked.value } };
 }
 
-async function cadenceScreen(draft: Draft, stepLine: string): Promise<PickResult<Draft>> {
+export async function cadenceScreen(draft: Draft, stepLine?: string): Promise<PickResult<Draft>> {
   const picked = await pickOne<Intensity>({
     choices: CADENCES.map((cadence) => ({
       value: cadence.value,
@@ -208,7 +219,7 @@ async function cadenceScreen(draft: Draft, stepLine: string): Promise<PickResult
   return { ok: true, value: { ...draft, intensity: picked.value } };
 }
 
-async function levelsScreen(draft: Draft, stepLine: string): Promise<PickResult<Draft>> {
+export async function levelsScreen(draft: Draft, stepLine?: string): Promise<PickResult<Draft>> {
   const picked = await pickBand({
     rungs: LEVELS.map((rung) => ({
       ...rung,

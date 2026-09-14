@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { catalogTree, DEFAULT_DRAFT, draftLines, patchOf } from "../src/install.js";
+import { catalogTree, DEFAULT_DRAFT, draftLines, draftOf, patchOf } from "../src/install.js";
 import type { DomainEntry, TopicEntry } from "../src/types.js";
 
 const DOMAINS: DomainEntry[] = [
@@ -50,6 +50,34 @@ describe("the patch the door receives", () => {
       intensity: "intense",
       levels: { min: 2, max: 5 },
     });
+  });
+});
+
+describe("a draft from the door's summary", () => {
+  it("opens on what is set, so saving one screen cannot wipe another", () => {
+    const draft = draftOf({
+      prefer: ["frontend"],
+      topics: ["css"],
+      strict: true,
+      intensity: "light",
+      levels: { min: 2, max: 4 },
+    });
+    expect(draft).toEqual({
+      prefer: ["frontend"],
+      topics: ["css"],
+      strict: true,
+      intensity: "light",
+      levels: { min: 2, max: 4 },
+    });
+  });
+
+  it("falls back to the default, never to blank, for a field the door did not send", () => {
+    const draft = draftOf({ prefer: ["backend"], intensity: "not-a-rate" });
+    expect(draft.prefer).toEqual(["backend"]);
+    expect(draft.topics).toEqual(DEFAULT_DRAFT.topics);
+    expect(draft.strict).toBe(DEFAULT_DRAFT.strict);
+    expect(draft.intensity).toBe(DEFAULT_DRAFT.intensity);
+    expect(draft.levels).toEqual(DEFAULT_DRAFT.levels);
   });
 });
 

@@ -28,15 +28,14 @@ import {
   LOGIN_DEADLINE_MS,
   QUICK_MUTE_MINUTES,
   QUICK_MUTE_MS,
-  TOGGLE_KEYS,
   TOKEN_PREFIX_CHARS,
   TOUCHED_SHOWN,
   TUI_INFER_BUDGET_MS,
 } from "./constants.js";
 import { plainBlock } from "./format.js";
 import { inferHints } from "./infer.js";
-import { CADENCES } from "./install.js";
-import { pickMany } from "./pick.js";
+import { CADENCES, draftOf, gateScreen, install, levelsScreen, scopeScreen } from "./install.js";
+import { pickMany, pickOne } from "./pick.js";
 import {
   copyToClipboard,
   hiddenCursor,
@@ -54,10 +53,11 @@ import {
   title,
   withLoop,
 } from "./screen.js";
-import { domainCatalog, ensureGrammar, observeRep, observeVerdict, offerOf } from "./store.js";
+import { ensureGrammar, observeRep, observeVerdict, offerOf } from "./store.js";
 import {
   asPick,
   type ApiResult,
+  type Intensity,
   type LocalHints,
   type LoopPose,
   type OfferEntry,
@@ -131,7 +131,7 @@ type Summary = {
   name: string;
   isPro: boolean;
   intensity: string;
-  cap: number;
+  cap: number | null;
   gapMinutes: number;
   answeredToday: number;
   askedToday: number;
@@ -145,6 +145,9 @@ type Summary = {
   prefer: string[];
   muteCount: number;
   upgradeUrl: string | null;
+  topics?: string[];
+  strict?: boolean;
+  levels?: { min: number; max: number };
 };
 
 async function fetchSummary(): Promise<Summary | null> {
@@ -159,10 +162,10 @@ function summaryLines(s: Summary): string[] {
   return [
     `${title(`Hey ${s.name}.`)}  ${plan}`,
     "",
-    `Today: ${paint(String(s.answeredToday), "bold")} answered of ${s.cap}, ${s.askedToday} asked of ${s.askedCap}. This week ${s.weekReps}.`,
+    `Today: ${paint(String(s.answeredToday), "bold")} answered${s.cap === null ? "" : ` of ${s.cap}`}, ${s.askedToday} asked of ${s.askedCap}. This week ${s.weekReps}.`,
     `Streak: ${paint(String(s.currentStreak), "bold")} day${s.currentStreak === 1 ? "" : "s"} (best ${s.longestStreak}).`,
-    `Intensity: ${paint(s.intensity, "bold")} (${s.gapMinutes} min between reps)${muted ? paint("  muted", "faint") : ""}`,
-    `Prefers: ${s.prefer.length > 0 ? s.prefer.join(", ") : "the whole catalog"}${s.muteCount > 0 ? paint(`  · ${s.muteCount} mute${s.muteCount === 1 ? "" : "s"}`, "faint") : ""}`,
+    `Rate: ${paint(s.intensity, "bold")} (${s.gapMinutes} min between reps)${muted ? paint("  muted", "faint") : ""}`,
+    `Areas: ${s.prefer.length > 0 ? s.prefer.join(", ") : "the whole catalog"}${s.strict ? paint("  · only these", "faint") : ""}${s.muteCount > 0 ? paint(`  · ${s.muteCount} mute${s.muteCount === 1 ? "" : "s"}`, "faint") : ""}`,
   ];
 }
 
@@ -318,70 +321,47 @@ async function mutesScreen(): Promise<void> {
   if (target) await confirmSaved(await api.settings({ unmute: target.key }));
 }
 
-const PREFER_KEYS = TOGGLE_KEYS.slice(0, 13);
-
-async function preferScreen(current: string[]): Promise<void> {
-  const domains = (await domainCatalog()).slice(0, PREFER_KEYS.length);
-  if (domains.length === 0) {
-    out(withLoop("facepalm", [title("Could not load the domains."), "Try again in a moment."]));
-    await pause();
-    return;
-  }
-  const chosen = new Set(current);
-  for (;;) {
-    out([
-      ...withLoop("idle", [
-        title("What the pushed rep prefers."),
-        "The rep follows what you touched; among that, these domains come first.",
-        "",
-      ]),
-      ...domains.map(
-        (d, i) =>
-          `${paint(PREFER_KEYS[i] ?? "", "coral", "bold")} ${chosen.has(d.slug) ? paint("●", "gold") : paint("·", "faint")} ${d.name}`,
-      ),
-      "",
-      keyHint([
-        ["a-m", "toggle"],
-        ["enter", "save"],
-        ["esc", "back"],
-      ]),
-    ]);
-    const key = await readKey();
-    if (isBack(key)) return;
-    if (isEnter(key)) break;
-    const index = PREFER_KEYS.indexOf(key.toLowerCase());
-    const domain = domains[index];
-    if (!domain) continue;
-    if (chosen.has(domain.slug)) chosen.delete(domain.slug);
-    else chosen.add(domain.slug);
-  }
-  const saved = await api.settings({ prefer: [...chosen] });
-  out(
-    withLoop("impressed", [
-      title(saved.ok ? saved.value.text : `Could not save (${saved.reason}).`),
-    ]),
-  );
-  await pause();
+async function areasScreen(summary: Summary): Promise<void> {
+  const scoped = await scopeScreen(draftOf(summary));
+  if (!scoped.ok) return;
+  const gated = await gateScreen(scoped.value);
+  if (!gated.ok) return;
+  const { prefer, topics, strict } = gated.value;
+  await confirmSaved(await api.settings({ prefer, topics, strict }));
 }
 
-async function settingsScreen(status: Summary): Promise<void> {
-  out(
-    withLoop("idle", [
-      title("Intensity."),
-      `${paint("0", "coral", "bold")} off   ${paint("1", "coral", "bold")} light   ${paint("2", "coral", "bold")} regular${status.isPro ? "" : paint(" (Pro)", "faint")}   ${paint("3", "coral", "bold")} intense${status.isPro ? "" : paint(" (Pro)", "faint")}`,
-      `${paint("m", "coral", "bold")} mute for two hours   ${paint("esc", "coral", "bold")} back`,
-      "",
-      paint(`Now: ${status.intensity}`, "faint"),
-    ]),
-  );
-  const key = await readKey();
-  const picked = CADENCES.find((c) => c.key === key);
-  if (picked) await confirmSaved(await api.settings({ intensity: picked.value }), "idle");
-  else if (key === "m") {
+async function rateScreen(summary: Summary): Promise<void> {
+  const picked = await pickOne<Intensity | "quiet">({
+    choices: [
+      ...CADENCES.map((c) => ({ value: c.value, label: c.name, hint: c.says })),
+      {
+        value: "quiet",
+        label: "quiet for two hours",
+        hint: "The rate stays; nothing arrives until then.",
+      },
+    ],
+    current: draftOf(summary).intensity,
+    heading: "How often should a rep arrive?",
+    intro:
+      "A rep waits for a finished task, never for a keystroke. The gap is the most it will ever ask.",
+    ...(summary.isPro
+      ? {}
+      : { note: "Regular and intense are Pro; picking one is stored and arrives with the seat." }),
+  });
+  if (!picked.ok) return;
+  if (picked.value === "quiet") {
     const result = await api.settings({ muteMinutes: QUICK_MUTE_MINUTES });
     if (result.ok) updateConfig({ nextEligibleAt: clock.now() + QUICK_MUTE_MS });
     await confirmSaved(result, "sleeping");
+    return;
   }
+  await confirmSaved(await api.settings({ intensity: picked.value }), "idle");
+}
+
+async function depthScreen(summary: Summary): Promise<void> {
+  const picked = await levelsScreen(draftOf(summary));
+  if (!picked.ok) return;
+  await confirmSaved(await api.settings({ levels: picked.value.levels }));
 }
 
 function manualLines(): string[] {
@@ -563,8 +543,9 @@ const MENU: readonly MenuItem[] = [
   { key: "t", label: "this session", run: () => sessionScreen() },
   { key: "s", label: "skills", run: () => skillsScreen() },
   { key: "m", label: "mutes", run: () => mutesScreen() },
-  { key: "p", label: "prefer", run: (summary) => preferScreen(summary.prefer) },
-  { key: "i", label: "intensity", run: (summary) => settingsScreen(summary) },
+  { key: "p", label: "areas", run: (summary) => areasScreen(summary) },
+  { key: "i", label: "rate", run: (summary) => rateScreen(summary) },
+  { key: "l", label: "depth", run: (summary) => depthScreen(summary) },
   { key: "c", label: "connect an editor", run: () => connect(true) },
   {
     key: "d",
@@ -573,6 +554,13 @@ const MENU: readonly MenuItem[] = [
       process.stdout.write(CLEAR);
       await doctor();
       await pause();
+    },
+  },
+  {
+    key: "w",
+    label: "set up again",
+    run: async () => {
+      await install();
     },
   },
 ];

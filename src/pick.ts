@@ -60,7 +60,7 @@ export async function pickTree(opts: {
   picked: ReadonlySet<string>;
   heading: string;
   intro: string;
-  stepLine: string;
+  stepLine?: string | undefined;
   summary: (picked: ReadonlySet<string>) => { text: string; ready: boolean };
 }): Promise<PickResult<Set<string>>> {
   let picked = new Set(opts.picked);
@@ -197,7 +197,7 @@ export async function pickOne<T>(opts: {
   current: T;
   heading: string;
   intro: string;
-  stepLine: string;
+  stepLine?: string | undefined;
   pose?: LoopPose;
   note?: string;
 }): Promise<PickResult<T>> {
@@ -361,7 +361,7 @@ export async function pickBand(opts: {
   band: { min: number; max: number };
   heading: string;
   intro: string;
-  stepLine: string;
+  stepLine?: string | undefined;
   note: string;
 }): Promise<PickResult<{ min: number; max: number }>> {
   let { min, max } = opts.band;

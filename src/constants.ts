@@ -120,7 +120,6 @@ export const MAX_LINE = 4000;
 export const ART_WIDTH = 19;
 export const ART_GUTTER = 21;
 export const PROBE_MS = 2000;
-export const TOGGLE_KEYS = "abcdefghijklmnopqrstuvwxyz";
 export const TOKEN_PREFIX_CHARS = 12;
 export const TOUCHED_SHOWN = 8;
 export const FREE_MAX_LEVEL = 1;
