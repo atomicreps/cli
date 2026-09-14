@@ -391,8 +391,8 @@ export async function pickBand(opts: {
       paint(
         pending === null
           ? shown.min === shown.max
-            ? `Level ${shown.min} only. Space a rung to start a new band.`
-            : `Levels ${shown.min} to ${shown.max}. Space a rung to start a new band.`
+            ? `Level ${shown.min} only. Space a level to start a new range.`
+            : `Levels ${shown.min} to ${shown.max}. Space a level to start a new range.`
           : `From ${pending}. Space the other end.`,
         pending === null ? "soft" : "coral",
       ),

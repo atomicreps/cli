@@ -36,13 +36,13 @@ const CASES: ReadonlyArray<
     { kind: "ignore" },
   ],
   [
-    "an event name the host left out is a prompt, the older contract",
+    "an event name the editor left out is a prompt, the older contract",
     { prompt: "done with the form", cwd: "/repo" },
     given(),
     { kind: "quiet" },
   ],
   [
-    "a pull through the door's own prompt gets nothing from the hook, not even the quiet line",
+    "a pull through the server's own prompt gets nothing from the hook, not even the quiet line",
     typed("/mcp__atomicreps-alpha__rep react"),
     given(),
     { kind: "ignore" },
@@ -84,13 +84,13 @@ const CASES: ReadonlyArray<
     { kind: "grade", id: "q1", pick: "B" },
   ],
   [
-    "a letter with ! is that letter, and the person saying they were sure",
+    "a letter with ! is that letter, and the user saying they were sure",
     typed("A!"),
     given({ pending: served() }),
     { kind: "grade", id: "q1", pick: "A", sure: true },
   ],
   [
-    "a letter with ? is that letter, and the person saying they were not",
+    "a letter with ? is that letter, and the user saying they were not",
     typed("b?"),
     given({ pending: served() }),
     { kind: "grade", id: "q1", pick: "B", sure: false },
@@ -162,7 +162,7 @@ const CASES: ReadonlyArray<
     { kind: "ignore" },
   ],
   [
-    "a turn that ended on a question is nothing: the person is about to answer it",
+    "a turn that ended on a question is nothing: the user is about to answer it",
     stopped("Shall I apply the same to the other routes?"),
     given(),
     { kind: "ignore" },
@@ -174,7 +174,7 @@ const CASES: ReadonlyArray<
     { kind: "push", cwd: "/repo" },
   ],
   [
-    "a finished turn with nothing in the way is a push, in the host's directory",
+    "a finished turn with nothing in the way is a push, in the editor's directory",
     stopped(),
     given(),
     { kind: "push", cwd: "/repo" },

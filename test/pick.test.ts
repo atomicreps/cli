@@ -2,13 +2,13 @@ import { describe, expect, it } from "vitest";
 
 import { bandFrom, viewport } from "../src/pick.js";
 
-describe("two rungs make a band", () => {
+describe("two levels make a range", () => {
   it("reads the same either way round", () => {
     expect(bandFrom(2, 4)).toEqual({ min: 2, max: 4 });
     expect(bandFrom(4, 2)).toEqual({ min: 2, max: 4 });
   });
 
-  it("the same rung twice is that rung alone, not an empty band", () => {
+  it("the same level twice is that level alone, not an empty range", () => {
     expect(bandFrom(3, 3)).toEqual({ min: 3, max: 3 });
   });
 });

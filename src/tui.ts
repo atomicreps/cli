@@ -1,12 +1,16 @@
+import { dirname, join } from "node:path";
+
 import { paint, stripAnsi } from "./ansi.js";
 import * as api from "./api.js";
 import { paintBlock } from "./block.js";
 import * as clock from "./clock.js";
 import {
   apiOrigin,
+  channelFollowedSignIn,
   channelOf,
   clientLabel,
   hostLabel,
+  configPath,
   readConfig,
   rejectedOverrides,
   siteOrigin,
@@ -18,6 +22,7 @@ import {
   connectOffers,
   claudeAvailable,
   claudeAddCommand,
+  claudeSettingsPath,
   codexAddCommand,
   cursorConfig,
   cursorMcpPath,
@@ -33,6 +38,7 @@ import {
   TOUCHED_SHOWN,
   TUI_INFER_BUDGET_MS,
 } from "./constants.js";
+import { readJsonFile } from "./files.js";
 import { inferHints } from "./infer.js";
 import { CADENCES, draftOf, gateScreen, install, levelsScreen, scopeScreen } from "./install.js";
 import { pickMany, pickOne } from "./pick.js";
@@ -53,7 +59,7 @@ import {
   title,
   withLoop,
 } from "./screen.js";
-import { ensureGrammar, observeRep, observeVerdict, offerOf } from "./store.js";
+import { ensureGrammar, observeRep, observeVerdict, offerOf, pendingRep } from "./store.js";
 import {
   asPick,
   stringList,
@@ -66,6 +72,7 @@ import {
   type Pick,
   type ToolReply,
 } from "./types.js";
+import { isBehind, SERVER_VERSION } from "./version.js";
 import { bool, list, num, record, str } from "./wire.js";
 
 async function fetched<T>(
@@ -227,11 +234,11 @@ async function repScreen(ask?: string): Promise<void> {
     const reason = str(data.reason);
     const why =
       reason === "spent"
-        ? "Today's asked reps are done."
+        ? "Today's requested reps are done."
         : reason === "off"
-          ? "The door is off. Set an intensity to open it."
+          ? "Reps are off. Set an intensity to turn them on."
           : "Nothing to serve right now.";
-    out(withLoop("sleeping", [title("Quiet."), why]));
+    out(withLoop("sleeping", [title("No rep."), why]));
     await pause();
     return;
   }
@@ -378,7 +385,7 @@ async function rateScreen(summary: Summary): Promise<void> {
       ...CADENCES.map((c) => ({ value: c.value, label: c.name, hint: c.says })),
       {
         value: "quiet",
-        label: "quiet for two hours",
+        label: "pause for two hours",
         hint: "The rate stays; nothing arrives until then.",
       },
     ],
@@ -516,9 +523,27 @@ export async function connect(interactive = isInteractive()): Promise<void> {
   await pause();
 }
 
+function claudePluginLine(): string {
+  const registry = readJsonFile<{ plugins?: Record<string, unknown> }>(
+    join(dirname(claudeSettingsPath()), "plugins", "installed_plugins.json"),
+  );
+  const names = Object.keys(registry?.plugins ?? {}).filter((name) =>
+    name.startsWith("atomicreps"),
+  );
+  return names.length > 0
+    ? `claude plugin: ${names.join(", ")}`
+    : "claude plugin: not installed (the Stop hook that sends an automatic rep after a turn comes with it)";
+}
+
 export async function doctor(): Promise<number> {
   const config = readConfig();
-  const lines: string[] = [`channel: ${channelOf()}`, `door: ${apiOrigin()}`];
+  const pending = pendingRep();
+  const lines: string[] = [
+    `atomicreps: ${SERVER_VERSION} on node ${process.version}`,
+    `channel: ${channelOf()}${channelFollowedSignIn() ? " (followed the sign-in; no --alpha given)" : ""}`,
+    `api: ${apiOrigin()}`,
+    `config: ${configPath()}`,
+  ];
   for (const { name, value } of rejectedOverrides()) {
     lines.push(
       `${name} ignored: ${value} is not an Atomic Reps origin. Set ${ENV.unsafeOrigin}=1 for local development.`,
@@ -535,6 +560,10 @@ export async function doctor(): Promise<number> {
     const ping = await api.me("summary", LOGIN_DEADLINE_MS);
     if (ping.ok) {
       lines.push(`server: ok in ${ping.ms}ms`);
+      const latest = ping.value.client?.release?.version;
+      if (typeof latest === "string" && isBehind(SERVER_VERSION, latest)) {
+        lines.push(`latest: ${latest} (npx picks it up on the next launch; restart your editor)`);
+      }
       const grammar = await ensureGrammar(clock.now(), str(ping.value.data?.grammarVersion));
       lines.push(
         grammar
@@ -550,8 +579,13 @@ export async function doctor(): Promise<number> {
   }
   lines.push(
     config.nextEligibleAt && config.nextEligibleAt > clock.now()
-      ? `quiet until: ${clock.iso(config.nextEligibleAt)}`
-      : "quiet until: now (eligible)",
+      ? `next rep after: ${clock.iso(config.nextEligibleAt)}`
+      : "next rep: now (eligible)",
+  );
+  lines.push(
+    pending
+      ? `pending rep: ${pending.handle ?? pending.topicSlug} served ${clock.iso(pending.servedAt)} (a letter answers it; no push until it is answered or expires)`
+      : "pending rep: none",
   );
   lines.push(
     config.lastFailure
@@ -560,8 +594,8 @@ export async function doctor(): Promise<number> {
   );
   lines.push(
     config.lastQuiet
-      ? `last quiet: ${config.lastQuiet} at ${config.lastQuietAt ? clock.iso(config.lastQuietAt) : "?"}`
-      : "last quiet: none",
+      ? `last no rep: ${config.lastQuiet} at ${config.lastQuietAt ? clock.iso(config.lastQuietAt) : "?"}`
+      : "last no rep: none",
   );
   const missing = allowlistMissing();
   lines.push(
@@ -569,6 +603,7 @@ export async function doctor(): Promise<number> {
       ? "claude allowlist: complete"
       : `claude allowlist: missing ${missing.join(", ")} (run npx atomicreps connect)`,
   );
+  lines.push(claudePluginLine());
   lines.push(claudeAvailable() ? "claude cli: found" : "claude cli: not found");
   plain(lines);
   return failures === 0 ? 0 : 1;

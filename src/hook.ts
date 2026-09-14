@@ -50,10 +50,10 @@ export const QUIET_CONTEXT =
   "Atomic Reps: no rep this turn. Write no rep block and say nothing about this. A rep exists only as text the hook, the rep tool or the rep prompt hands you; never compose, complete or paraphrase one.";
 
 export const VERDICT_ETIQUETTE =
-  "The person just answered their pending rep and the verdict is below. Relay the block verbatim as your whole reply, nothing before or after.";
+  "The user just answered their pending rep and the verdict is below. Relay the block verbatim as your whole reply, nothing before or after.";
 
 export const ASKED_ETIQUETTE =
-  "The person asked for another rep by number and it is below. Relay the block verbatim as your whole reply, nothing before or after. If their next message is a single letter, the hook grades it.";
+  "The user asked for another rep by number and it is below. Relay the block verbatim as your whole reply, nothing before or after. If their next message is a single letter, the hook grades it.";
 
 function context(text: string): HookOutput {
   return {

@@ -92,7 +92,7 @@ describe("atomicreps hook", () => {
     expect(Date.now() - started).toBeLessThan(50);
   });
 
-  it("a prompt gets the quiet line and never pushes, whatever the clock says", async () => {
+  it("a prompt gets no rep and never pushes, whatever the clock says", async () => {
     const { hook, config } = await load();
     config.writeConfig({ token: "arep_test" });
     const fetchSpy = vi.fn();
@@ -144,7 +144,7 @@ describe("atomicreps hook", () => {
     expect(out).toBeNull();
   });
 
-  it("prints an eligible rep to the person at the end of the turn, and records it pending", async () => {
+  it("prints an eligible rep to the user at the end of the turn, and records it pending", async () => {
     const { hook, config, store } = await load();
     config.writeConfig({ token: "arep_test" });
     vi.stubGlobal(
@@ -222,7 +222,7 @@ describe("atomicreps hook", () => {
     expect(store.openOffer()).toEqual([{ handle: "css.grid", name: "CSS · Grid" }]);
   });
 
-  it("carries the confidence suffix to the door, and sends nothing when there was none", async () => {
+  it("carries the confidence suffix to the server, and sends nothing when there was none", async () => {
     const { hook, config, store } = await load();
     const bodies: Array<Record<string, unknown>> = [];
     const verdict = vi.fn(async (_url: string, init?: RequestInit) => {
@@ -250,7 +250,7 @@ describe("atomicreps hook", () => {
     expect(bodies[2]).toEqual({ id: "q2", pick: "C" });
   });
 
-  it("a single digit under a verdict asks for that offer entry on the asked lane", async () => {
+  it("a single digit under a verdict asks for that offer entry as a requested rep", async () => {
     const { hook, config, store } = await load();
     config.writeConfig({ token: "arep_test", nextEligibleAt: Date.now() + 60_000 });
     store.observeRep(
@@ -432,8 +432,8 @@ describe("two processes, two versions", () => {
   });
 });
 
-describe("the cached clock never outlives the door", () => {
-  it("stays quiet on a near clock and asks the door on a far one", async () => {
+describe("the cached clock never outlives the server", () => {
+  it("stays quiet on a near clock and asks the server on a far one", async () => {
     const { locallyQuiet } = await import("../src/clock.js");
     const { MAX_LOCAL_QUIET_MS } = await import("../src/constants.js");
     const now = 1_000_000;
@@ -458,7 +458,7 @@ describe("a letter typed later is still an answer", () => {
 
 const REP_MARK_CHAR = String.fromCodePoint(0x269b);
 
-describe("a pushed rep needs something to have been built", () => {
+describe("an automatic rep needs something to have been built", () => {
   function doorWithARep() {
     return vi.fn(
       async () =>
@@ -504,7 +504,7 @@ describe("a pushed rep needs something to have been built", () => {
     vi.stubGlobal("fetch", door);
 
     expect(await hook.runHook(stopAt(cwd))).toBeNull();
-    expect(door, "an unchanged tree must not reach the door").not.toHaveBeenCalled();
+    expect(door, "an unchanged tree must not reach the server").not.toHaveBeenCalled();
   });
 
   it("asks when the tree has moved since the mark", async () => {
@@ -522,7 +522,7 @@ describe("a pushed rep needs something to have been built", () => {
     );
   });
 
-  it("does not spend the change on a door that said nothing", async () => {
+  it("does not spend the change on a server that said nothing", async () => {
     const { hook, config } = await load();
     const cwd = repo("export const a = 1;");
     config.writeConfig({ token: "arep_test", lastPushTouch: "deadbeef" });
@@ -537,7 +537,7 @@ describe("a pushed rep needs something to have been built", () => {
     );
 
     await hook.runHook(stopAt(cwd));
-    expect(config.readConfig().lastPushTouch, "a quiet door leaves the work unasked").toBe(
+    expect(config.readConfig().lastPushTouch, "a silent server leaves the work unasked").toBe(
       "deadbeef",
     );
   });
@@ -592,7 +592,7 @@ describe("the block as the terminal prints it", () => {
     expect(plain, "inline code loses its backticks").toContain("What does --no-cache do on build?");
     expect(plain).toContain("  RUN apk add curl");
     expect(plain).toContain("From memory. Reply with a letter.");
-    expect(plain.startsWith("\n"), "the host's label gets a line of its own").toBe(true);
+    expect(plain.startsWith("\n"), "Claude Code's label gets a line of its own").toBe(true);
     delete process.env.NO_COLOR;
     process.env.TERM = "xterm-256color";
     const painted = messageBlock(block);
@@ -601,7 +601,7 @@ describe("the block as the terminal prints it", () => {
     const CORAL = `${ESC}[38;5;209m`;
     const GOLD = `${ESC}[38;5;221m`;
     const SOFT = `${ESC}[38;5;250m`;
-    expect(painted, "the question is ink, never the host's grey").toContain(`${INK}What does `);
+    expect(painted, "the question is ink, never Claude Code's grey").toContain(`${INK}What does `);
     expect(painted, "inline code is gold").toContain(`${GOLD}--no-cache${ESC}[0m`);
     expect(painted, "bold inside the question keeps ink").toContain(
       `${INK}${ESC}[1mbuild${ESC}[0m`,
@@ -614,7 +614,7 @@ describe("the block as the terminal prints it", () => {
     expect(painted, "nothing is dimmed").not.toContain(`${ESC}[2m`);
     expect(painted, "a blank line stays blank").toContain("\n\n");
     process.env.NO_COLOR = "1";
-    expect(messageBlock(block), "none when the person refused it").not.toContain(ESC);
+    expect(messageBlock(block), "none when the user refused it").not.toContain(ESC);
     delete process.env.NO_COLOR;
   });
 
@@ -631,8 +631,8 @@ describe("the block as the terminal prints it", () => {
   });
 });
 
-describe("the host's own 10,000-character cap", () => {
-  it("prints the same shape uncoloured rather than let the host swap in a preview", async () => {
+describe("Claude Code's own 10,000-character cap", () => {
+  it("prints the same shape uncoloured rather than let Claude Code swap in a preview", async () => {
     const { hook } = await load();
     delete process.env.NO_COLOR;
     process.env.TERM = "xterm-256color";

@@ -56,7 +56,7 @@ describe("a CLI that is not on the path", () => {
     }
   });
 
-  it("names the tool the person has to install, not just a failure", () => {
+  it("names the tool the user has to install, not just a failure", () => {
     expect(
       agentTargets()
         .find((t) => t.id === "codex")
@@ -73,7 +73,7 @@ describe("where Claude Code's settings are", () => {
     else process.env.CLAUDE_CONFIG_DIR = saved;
   });
 
-  it("follows CLAUDE_CONFIG_DIR when the person has moved the directory", () => {
+  it("follows CLAUDE_CONFIG_DIR when the user has moved the directory", () => {
     process.env.CLAUDE_CONFIG_DIR = "/tmp/somewhere-else";
     expect(claudeSettingsPath()).toBe("/tmp/somewhere-else/settings.json");
   });

@@ -33,7 +33,7 @@ describe("the catalog as a tree", () => {
   });
 });
 
-describe("the patch the door receives", () => {
+describe("the patch the server receives", () => {
   it("carries every answer and nothing else", () => {
     expect(
       patchOf({
@@ -53,7 +53,7 @@ describe("the patch the door receives", () => {
   });
 });
 
-describe("a draft from the door's summary", () => {
+describe("a draft from the server's summary", () => {
   it("opens on what is set, so saving one screen cannot wipe another", () => {
     const draft = draftOf({
       prefer: ["frontend"],
@@ -71,7 +71,7 @@ describe("a draft from the door's summary", () => {
     });
   });
 
-  it("falls back to the default, never to blank, for a field the door did not send", () => {
+  it("falls back to the default, never to blank, for a field the server did not send", () => {
     const draft = draftOf({ prefer: ["backend"], intensity: "not-a-rate" });
     expect(draft.prefer).toEqual(["backend"]);
     expect(draft.topics).toEqual(DEFAULT_DRAFT.topics);

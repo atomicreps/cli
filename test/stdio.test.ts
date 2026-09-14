@@ -99,7 +99,7 @@ function probe(messages: object[]): Promise<{ stdout: string; stderr: string }> 
 }
 
 describe("atomicreps mcp over stdio", () => {
-  it("stdout is JSON-RPC only: first byte is {, no escape byte, instructions from the door", async () => {
+  it("stdout is JSON-RPC only: first byte is {, no escape byte, instructions from the server", async () => {
     const { stdout, stderr } = await probe([
       {
         jsonrpc: "2.0",

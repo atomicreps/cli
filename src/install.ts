@@ -85,7 +85,7 @@ export const SENT_NOTE =
   "That is the whole of it. We choose the question from those names and the settings you pick next. More at atomicreps.com/docs/data-flows";
 
 export const FREE_LEVEL_NOTE =
-  "A tagged rung is stored, never refused: set the band you actually want and it is already right the day a Pro, team or school seat lands. Free is served the first rung until then.";
+  "A tagged level is stored, never refused: set the level range you actually want and it is already right the day a Pro, team or school seat lands. Free is served the first level until then.";
 
 function paragraph(text: string, width: number = TEXT_WIDTH): string[] {
   return wrap(text, width).map((line) => paint(line, "faint"));
@@ -150,7 +150,7 @@ export function catalogTree(
 }
 
 const SCOPE_INTRO =
-  "Take a whole area, or open one and pick the topics inside it. Type any letters to search all of them at once. What you are building still wins; this is where a rep comes from when your working tree is quiet.";
+  "Take a whole area, or open one and pick the topics inside it. Type any letters to search all of them at once. What you are building still wins; this is where a rep comes from when your working tree is silent.";
 
 export async function scopeScreen(draft: Draft, stepLine?: string): Promise<PickResult<Draft>> {
   const groups = catalogTree(await domainCatalog(), await topicCatalog());
@@ -226,7 +226,8 @@ export async function levelsScreen(draft: Draft, stepLine?: string): Promise<Pic
     })),
     band: draft.levels,
     heading: "How hard?",
-    intro: "Space the easiest rung you want, then the hardest. Everything between them is in play.",
+    intro:
+      "Space the easiest level you want, then the hardest. Everything between them is in play.",
     stepLine,
     note: FREE_LEVEL_NOTE,
   });

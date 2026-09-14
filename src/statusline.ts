@@ -14,7 +14,7 @@ export function statusLine(now = clock.now()): string {
   const pending = pendingRep(now);
   if (pending) return `${FACE_PENDING} rep pending, answer with a letter${streakPart}`;
   if (config.nextEligibleAt !== undefined && config.nextEligibleAt > now) {
-    return `${FACE_QUIET} quiet until ${clock.hhmm(config.nextEligibleAt)}${streakPart}`;
+    return `${FACE_QUIET} next rep at ${clock.hhmm(config.nextEligibleAt)}${streakPart}`;
   }
   return `${FACE_READY} rep ready${streakPart}`;
 }

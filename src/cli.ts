@@ -1,4 +1,4 @@
-import { readConfig, setChannel, writeConfig } from "./config.js";
+import { launchChannel, readConfig, setChannel, signedInOn, writeConfig } from "./config.js";
 import { ENV } from "./constants.js";
 import { refreshGrammar, runHook } from "./hook.js";
 import { install, needsSetup } from "./install.js";
@@ -11,18 +11,18 @@ import { SERVER_VERSION } from "./version.js";
 
 const HELP = `atomicreps - one short rep about the thing you just built, inside your coding agent.
 
-  npx atomicreps            the terminal surface: you, this session, topics, mutes, rate
+  npx atomicreps            the CLI: you, this session, topics, mutes, rate
   npx atomicreps setup      the first-run wizard: what to practise, how often, how hard
   npx atomicreps login      sign in from a browser with a typed code
   npx atomicreps connect    pick which editors to wire up; writes nothing you did not pick
-  npx atomicreps mcp        the stdio bridge to the door (what the editor launches)
+  npx atomicreps mcp        the MCP server the editor launches
   npx atomicreps doctor     token, server ping, quiet clock, allowlist
   npx atomicreps logout     forget the token on this machine
   npx atomicreps logout --purge   also forget your reps and status; for a shared machine
   npx atomicreps hook       the Claude Code plugin's Stop and UserPromptSubmit hook (stdin JSON in, JSON out)
   npx atomicreps statusline one line for a Claude Code status line
 
-Add --alpha to any command to use the staging door instead of the live one.
+Add --alpha to any command to use staging instead of production.
 Alpha keeps its own token and cache, so both can be signed in at once.
 
 Env: ATOMICREPS_API, ATOMICREPS_SITE, ATOMICREPS_CHANNEL=alpha, NO_COLOR.
@@ -46,10 +46,16 @@ function readStdin(): Promise<string> {
   });
 }
 
-function takeChannel(argv: string[]): string[] {
-  const flagged = argv.includes("--alpha");
-  if (flagged || process.env[ENV.channel] === "alpha") setChannel("alpha");
-  return argv.filter((arg) => arg !== "--alpha");
+function takeChannel(raw: string[]): string[] {
+  const argv = raw.filter((arg) => arg !== "--alpha");
+  const { channel, followed } = launchChannel({
+    command: argv[0],
+    flagged: raw.includes("--alpha"),
+    env: process.env[ENV.channel],
+    signedIn: signedInOn,
+  });
+  setChannel(channel, { followed });
+  return argv;
 }
 
 async function main(raw: string[]): Promise<number> {

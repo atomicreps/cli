@@ -3,7 +3,7 @@ import type { Tone } from "./types.js";
 
 export type Theme = "dark" | "light";
 
-type ThemedTone = Extract<Tone, "ink" | "soft" | "faint" | "coral" | "gold">;
+type ThemedTone = Extract<Tone, "ink" | "soft" | "faint" | "coral" | "gold" | "face">;
 type StaticTone = Exclude<Tone, ThemedTone>;
 
 const DARK = {
@@ -12,6 +12,7 @@ const DARK = {
   faint: "38;5;244",
   coral: "38;5;209",
   gold: "38;5;221",
+  face: "38;5;225",
 } as const satisfies Record<ThemedTone, string>;
 
 const LIGHT = {
@@ -20,6 +21,7 @@ const LIGHT = {
   faint: "38;5;247",
   coral: "38;5;166",
   gold: "38;5;136",
+  face: "38;5;53",
 } as const satisfies Record<ThemedTone, string>;
 
 const STATIC_CODES = {
@@ -27,7 +29,6 @@ const STATIC_CODES = {
   red: "38;5;203",
   body: "38;5;218",
   gill: "38;5;211",
-  face: "38;5;53",
   blush: "38;5;205",
   bold: "1",
   dim: "2",

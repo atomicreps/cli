@@ -35,7 +35,7 @@ function rowsOf(open: string[], picked: string[] = [], filter = "") {
   return treeRows(GROUPS, new Set(open), new Set(picked), filter);
 }
 
-describe("what the door is sent", () => {
+describe("what the server is sent", () => {
   it("whole areas stay areas, so the pick follows the catalog as it grows", () => {
     expect(draftFrom(GROUPS, new Set(ALL_FRONTEND))).toEqual({
       prefer: ["frontend"],
@@ -54,13 +54,13 @@ describe("what the door is sent", () => {
     expect(draftFrom(GROUPS, new Set())).toEqual({ prefer: [], topics: [] });
   });
 
-  it("a topic the catalog no longer has never reaches the door", () => {
+  it("a topic the catalog no longer has never reaches the server", () => {
     expect(draftFrom(GROUPS, new Set(["css", "retired-topic"])).topics).toEqual(["css"]);
   });
 });
 
 describe("reading a stored selection back", () => {
-  it("a stored topic list is the whole answer, as the door reads it", () => {
+  it("a stored topic list is the whole answer, as the server reads it", () => {
     expect([...pickedFrom(GROUPS, ["frontend", "backend"], ["css"])]).toEqual(["css"]);
   });
 

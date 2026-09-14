@@ -49,7 +49,7 @@ describe("the sign-in payloads", () => {
     expect(parseDevicePoll({ status: "approved", token: 12 })).toBeNull();
   });
 
-  it("refuses a status the door does not have", () => {
+  it("refuses a status the server does not have", () => {
     expect(parseDevicePoll({ status: "pending" })).toEqual({ status: "pending" });
     expect(parseDevicePoll({ status: "denied" })).toBeNull();
     expect(parseDevicePoll({})).toBeNull();

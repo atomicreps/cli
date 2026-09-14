@@ -34,9 +34,9 @@ export function plainBlock(text: string): string[] {
 }
 
 export const FALLBACK_INSTRUCTIONS = [
-  "Atomic Reps serves one short retrieval question about what the user just built, for the person at the keyboard, never for you.",
+  "Atomic Reps serves one short retrieval question about what the user just built, for the user, never for you.",
   "- If `rep` is not callable, this client is holding tool schemas back and listed it by name only: load this server's tools through your tool-discovery step before the first call.",
-  "- After you finish a task, call `rep` once with `touched` (short phrases for what changed). An empty result is quiet: say nothing.",
+  "- After you finish a task, call `rep` once with `touched` (short phrases for what changed). An empty result means nothing to ask: say nothing.",
   "- Reproduce a rep, a verdict or a `me` block verbatim after your own answer; never solve, hint or comment; never write one yourself.",
   "- A single letter A-D is the user's answer: call `answer` with `pick`. A digit 1-3 after a verdict: call `rep` with `ask` set to that offer entry's handle.",
 ].join("\n");
@@ -164,7 +164,7 @@ export const FALLBACK_TOOLS = [
     name: "rep",
     title: "One rep about what was just built",
     description:
-      "One rep about what was just built, or the one the person asked for by handle. Returns a block to print verbatim, or quiet.",
+      "One rep about what was just built, or the one the user asked for by handle. Returns a block to print verbatim, or nothing.",
     inputSchema: {
       type: "object",
       properties: {
@@ -180,7 +180,7 @@ export const FALLBACK_TOOLS = [
   {
     name: "answer",
     title: "Answer the open rep",
-    description: "Grade the person's pick for the open rep and return the verdict block.",
+    description: "Grade the user's pick for the open rep and return the verdict block.",
     inputSchema: {
       type: "object",
       properties: {
@@ -193,15 +193,15 @@ export const FALLBACK_TOOLS = [
   },
   {
     name: "me",
-    title: "How the person is doing",
-    description: "How the person is doing: summary, skills, reps, streak or mutes, as a block.",
+    title: "How the user is doing",
+    description: "How the user is doing: summary, skills, reps, streak, or mutes, as a block.",
     inputSchema: { type: "object", properties: { show: { type: "string" } } },
   },
   {
     name: "settings",
     title: "Intensity, mutes, preferences",
     description:
-      "Intensity, a timed mute, a topic mute for days or forever, an unmute, preferred domains, strict, or the dialog.",
+      "Set intensity, a timed mute, a topic mute for days or forever, an unmute, preferred domains, strict mode, or the dialog.",
     inputSchema: {
       type: "object",
       properties: {

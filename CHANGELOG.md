@@ -1,85 +1,88 @@
 # Changelog
 
+## 0.0.8
+
+- `hook`, `mcp`, `statusline` and `doctor` now follow whichever channel you signed in with, when none is named; production wins if both are signed in. `login`, `connect` and `logout` still need an explicit channel; `doctor` says when it picked one automatically.
+
 ## 0.0.7
 
-- The rep your agent prints after a turn is readable again. Claude Code prints a hook's message in its own grey, and the block only coloured its header, so the question and the answers came out in that grey. Every line now sets its own colour: the question and the answers in full contrast, the letters and the header in coral, code in its own tone, inline code in gold with the backticks gone.
-- A light terminal gets dark ink. The hook reads the theme Claude Code is set to; `npx atomicreps` reads the terminal's own hint. Before, the palette assumed a dark background everywhere.
-- Code samples on the `npx atomicreps` screen keep their indentation. They were word-wrapped like prose, which dropped every leading space. Long answers wrap under their letter.
-- A block too long for Claude Code to print in colour prints plain instead. The host caps a hook's message at 10,000 characters and swaps anything longer for a file path.
+- The rep your agent prints after a turn is readable again. Every line now sets its own colour: question and answers in full contrast, letters and header in coral, code in its own tone, inline code in gold with the backticks removed.
+- A light terminal now gets dark text instead of assuming a dark background.
+- Code samples on the `npx atomicreps` screen keep their indentation; long answers wrap under their letter.
+- A block too long for Claude Code to print in colour (over 10,000 characters) now prints in plain text instead.
 
 ## 0.0.6
 
-- A pushed rep no longer re-asks something from another day's work. The re-ask lane ran ahead of the pick with the session's touched set as a tie-break only, so a TypeScript miss from July could come back after an afternoon of SQL, with no line saying why. Now a pushed rep re-asks only a lane inside what the session touched; the rest wait for a session that fits. Asking for a rep with nothing named still serves whatever is pending, which is where those go. Server-side; nothing to upgrade for this one.
-- `npx atomicreps` can run the setup again: `w` on the home screen. It was a subcommand (`npx atomicreps setup`) with no way to it from the screen.
-- Areas, rate and depth on the home screen are the wizard's own pickers now: arrows, space, enter, Esc, with the tree, the search and the current values already ticked. They were letter-keyed lists that covered thirteen areas, no topics and no band. Depth is new on the home screen; before, the band was the wizard's alone. The two hours of quiet moved to the rate screen as a row.
-- The door's `me` summary now carries the pinned topics and the difficulty band, so a picker opens on what is set rather than blank and saving one screen cannot wipe another.
+- An automatic rep no longer re-asks something from another day's work; it only re-asks a topic inside what the current session touched. Asking for a rep with nothing named still serves whatever is pending.
+- `npx atomicreps` can now run setup again: press `w` on the home screen.
+- Areas, rate, and difficulty on the home screen now use the wizard's own pickers (arrows, space, enter, Esc), with the topic tree, search, and current values already set. The two-hour quiet option moved to the rate screen.
+- The server's `me` summary now includes your pinned topics and difficulty range, so a picker opens showing what's already set.
 
 ## 0.0.5
 
-- The areas you pick can now decide what arrives, not just what comes first. Until today a rep followed whatever the session touched and your areas only broke the tie, so a day in Postgres could ask you about Postgres even if you had only picked Frontend. Setup now asks which you want. "These first" is what you already had and stays the default; "Only these" means a session spent outside your areas gets no rep at all rather than one you did not ask for.
-- `npx atomicreps` says when that silence was the setting doing its job, and how many reps it cost today, so a quiet afternoon has an answer rather than a suspicion.
-- Say "only ask me about my areas" to your agent to turn it on later, or "ask me about everything I touch" to go back.
-- Picking no areas leaves the setting inert. An empty list already means the whole catalog everywhere else, so gating on it would have silenced the door for good.
+- The areas you pick can now decide what arrives, not just break a tie. Setup now asks: "These first" (the old default) or "Only these" (no rep for a session spent outside your chosen areas).
+- `npx atomicreps` now says when a quiet stretch was caused by this setting, and how many reps it skipped today.
+- Say "only ask me about my areas" to turn this on, or "ask me about everything I touch" to turn it off.
+- Picking no areas leaves the setting inactive, same as everywhere else in the catalog.
 
 ## 0.0.4
 
-- The words your agent writes in `touched` no longer leave your machine. They are matched against the published catalog here, and only the handle they resolve to is sent. A phrase that matches nothing is dropped.
-- Package names, file extensions and folder names are sent only where the public catalog already knows them. A private package name resolves to its public alias word (`@acme/react-internal` becomes `react`) or is dropped, and the free-text `topic` an editor may pass is reduced to catalog words. Everything else an MCP host puts in a `rep` call is dropped rather than forwarded.
-- Answering with `A!` or `B?` works. The door asks for the letter and, optionally, `!` when you were sure and `?` when you were not; the hook did not recognise the suffix and the answer was read as ordinary prose and lost.
-- `ATOMICREPS_API` and `ATOMICREPS_SITE` are honoured only for an Atomic Reps origin or a loopback address, since your token is attached to whatever the first names and your browser is sent to the second. Anything else is ignored and `npx atomicreps doctor` says so; `ATOMICREPS_UNSAFE_ORIGIN=1` restores the old behaviour for local development.
-- `npx atomicreps logout --purge` also deletes the reps, the status and the error log this machine cached. For a shared machine.
-- SECURITY.md says what the trust boundary is and where to report a vulnerability.
-- Tells you when the bridge your editor is running has fallen behind. The hook is respawned through npx every turn, so it is current; the bridge is started once by your editor and keeps whatever it resolved then, for as long as the editor stays open. When the two differ, one line under the rep says so, links these notes, and asks you to restart. Said once per bridge start, not every turn.
-- Fixes `permission denied` on upgrade. The published `dist/cli.js` shipped without its executable bit. A first install still worked, because npm sets the bit when it creates the link, but an npx cache that already held an older copy replaced the file in place and kept the old link, so the next run refused to start. Anyone who ran 0.0.1 or 0.0.2 before 0.0.3 hit this; a clear npx cache was the only way out.
+- The words your agent writes in `touched` no longer leave your machine; only the matching catalog handle is sent.
+- Package names, file extensions, and folder names are sent only when the public catalog already knows them. A private package name resolves to its public alias (`@acme/react-internal` becomes `react`) or is dropped.
+- Answering with `A!` or `B?` now works: the server accepts a letter plus an optional `!` (sure) or `?` (not sure) suffix.
+- `ATOMICREPS_API` and `ATOMICREPS_SITE` are now honoured only for an Atomic Reps address or a loopback address. Anything else is ignored and reported by `npx atomicreps doctor`; set `ATOMICREPS_UNSAFE_ORIGIN=1` to restore the old behaviour.
+- `npx atomicreps logout --purge` now also deletes the reps, status, and error log this machine cached.
+- SECURITY.md now states the trust boundary and where to report a vulnerability.
+- `doctor` now tells you when the MCP server process your editor is running has fallen behind, and asks you to restart. Shown once per server start, not every turn.
+- Fixed `permission denied` on upgrade, caused by `dist/cli.js` shipping without its executable bit. Anyone who ran 0.0.1 or 0.0.2 before 0.0.3 needed to clear the npx cache; this is now fixed at the source.
 
 ## 0.0.3
 
-Three themes: a rep arrives when your turn is actually over, the door stops changing your pace behind your back, and it stops failing silently.
+Three themes: a rep arrives only when your turn is actually over, the server stops changing your pace behind your back, and failures stop being silent.
 
 ### When a rep arrives
 
-- In Claude Code, the `Stop` hook prints the rep when Claude's turn ends, instead of handing it to Claude to append after its answer. Claude never sees it, spends no tokens on it, and cannot forget to relay it.
-- No rep while Claude is asking you something. A turn that ends on a question is not finished; the answer is your next message.
-- No rep until something has changed in your working tree since the last one. A turn that only read files and gave an opinion has nothing to ask about.
-- No rep about something else. When nothing you touched has a fresh question, the door stays quiet for your gap instead of asking about a topic from your path. Asking for one by number still draws from your path and says so.
+- In Claude Code, the `Stop` hook now prints the rep when Claude's turn ends, instead of handing it to Claude to append after its answer.
+- No rep while Claude is asking you something; your answer is the next message.
+- No rep until something has changed in your working tree since the last one.
+- No rep about something unrelated. Asking for one by number still draws from your history and says so.
 
 ### Pace
 
-- Nothing widens your gap or shrinks your day on its own. The skip ramp and the next-day cap taper are both gone, and neither ever told you it had happened.
-- After five skips, and every fifth after, a rep offers a lighter pace instead of imposing one.
-- Pro has no daily ceiling: you pay for a pace, not a quota. Free keeps three a day. Off still means off.
+- Nothing widens your gap or shrinks your day automatically anymore.
+- After five skips, and every fifth after that, a rep offers a lighter pace instead of imposing one.
+- Pro has no daily ceiling: you pay for a pace, not a quota. Free keeps three a day; off still means off.
 
-### Reaching the door
+### Reaching the server
 
-- A wrong `ATOMICREPS_API` now names itself. It used to read as a bad minute, so the bridge served no tools and looked healthy for weeks.
-- An outage no longer costs a session its tools. Clients ask once, so the bridge keeps offering the four names.
-- `rep` speaks up when the door is unreachable for good, instead of retrying in silence.
-- A ledger the old two-strikes rule shut stayed shut for a day. Nothing reads that field now, and a migration clears it.
-- This machine stops trusting its own cached clock past an hour, so a client cannot outlive a fix.
-- The instructions say how to reach `rep` when a client lists tools by name only.
+- A wrong `ATOMICREPS_API` now names itself as the problem instead of reading as a bad minute.
+- An outage no longer costs a session its tools; the MCP server process keeps offering the four tool names.
+- `rep` now speaks up when the server is unreachable for good, instead of retrying silently.
+- A status the old two-strikes rule had shut stayed shut for a day; a migration now clears it.
+- This machine now stops trusting its own cached clock past an hour.
+- The setup instructions explain how to reach `rep` when a client lists tools by name only.
 
 ### Setup
 
-- The connect screen shows the command it really runs. On the alpha channel it printed one server name and registered another.
-- `npx atomicreps doctor` follows `CLAUDE_CONFIG_DIR` instead of always reading `~/.claude`.
-- Text beside Loop fits the terminal instead of running off the right edge.
+- The connect screen now shows the command it actually runs.
+- `npx atomicreps doctor` now follows `CLAUDE_CONFIG_DIR` instead of always reading `~/.claude`.
+- Text beside Loop now fits the terminal instead of running off the right edge.
 
 ### Wizard
 
 - One tree instead of two letter-keyed screens. Arrows move, space picks, right opens an area, and typing searches all 141 topics at once.
-- The first screen needs an area. Empty used to read as "all of it", which drew reps from every topic whenever your tree was quiet.
-- The difficulty band is picked on the ladder: space the easiest rung you want, then the hardest. Each rung says what shape of question it asks rather than how hard it feels.
-- Rungs above the free one carry a PRO tag.
-- Every screen takes the same four keys: arrows move, space picks, enter continues, escape goes back.
-- `npx atomicreps connect` asks before it touches anything. It lists Claude Code, Cursor, Windsurf and Codex, ticks nothing, and does only the rows you pick. "I'll set it up myself" prints the entry and writes nothing.
-- Ctrl-C leaves a wizard screen. Raw mode had been swallowing it.
-- An area you pick is sent as an area, so topics added to it later reach you.
+- The first screen now requires an area, instead of treating empty as "all of it."
+- The difficulty range is now picked on a ladder: space the easiest level, then the hardest. Levels above the free one carry a PRO tag.
+- Every screen uses the same four keys: arrows move, space picks, enter continues, escape goes back.
+- `npx atomicreps connect` now asks before changing anything. It lists Claude Code, Cursor, Windsurf, and Codex, ticks nothing, and only edits the rows you pick.
+- Ctrl-C now leaves a wizard screen.
+- An area you pick is now sent as an area, so topics added to it later reach you.
 
 ## 0.0.2
 
-- `npx atomicreps` no longer stops at "Could not load the catalog." on a fresh machine. The setup wizard reads the catalog before you sign in, and the server was asking for a token you cannot have yet.
-- The wizard waits up to eight seconds for the catalog rather than 1.2. Someone is at the keyboard on that screen, so the budget is theirs and not a build's.
+- `npx atomicreps` no longer stops at "Could not load the catalog" on a fresh machine; the wizard no longer requires a token you don't have yet.
+- The wizard now waits up to eight seconds for the catalog, instead of 1.2.
 
 ## 0.0.1
 
-First public release. `rep`, `answer`, `me` and `settings` over stdio or HTTP, the setup wizard, the loop, the status line and the prompt hook.
+First public release. `rep`, `answer`, `me`, and `settings` over stdio or HTTP, the setup wizard, the loop, the status line, and the prompt hook.

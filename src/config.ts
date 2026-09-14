@@ -19,9 +19,15 @@ import { ensureDir, readJsonFile, writeJsonAtomic } from "./files.js";
 import type { Channel, Config } from "./types.js";
 
 let channel: Channel = "default";
+let followed = false;
 
-export function setChannel(next: Channel): void {
+export function setChannel(next: Channel, opts: { followed?: boolean } = {}): void {
   channel = next;
+  followed = opts.followed ?? false;
+}
+
+export function channelFollowedSignIn(): boolean {
+  return followed;
 }
 
 export function channelOf(): Channel {
@@ -32,10 +38,40 @@ export function isAlpha(): boolean {
   return channel === "alpha";
 }
 
-function configDir(): string {
+function configDirFor(target: Channel): string {
   const base = process.env.XDG_CONFIG_HOME || join(homedir(), ".config");
   const root = join(base, CONFIG_DIR_NAME);
-  return isAlpha() ? join(root, "alpha") : root;
+  return target === "alpha" ? join(root, "alpha") : root;
+}
+
+function configDir(): string {
+  return configDirFor(channel);
+}
+
+export function signedInOn(target: Channel): boolean {
+  const config = readJsonFile<Config>(join(configDirFor(target), FILES.config)) ?? {};
+  return typeof config.token === "string" && config.token !== "";
+}
+
+export const FOLLOWS_SIGN_IN: ReadonlySet<string> = new Set([
+  "hook",
+  "mcp",
+  "statusline",
+  "doctor",
+]);
+
+export function launchChannel(args: {
+  command: string | undefined;
+  flagged: boolean;
+  env: string | undefined;
+  signedIn: (target: Channel) => boolean;
+}): { channel: Channel; followed: boolean } {
+  if (args.flagged || args.env === "alpha") return { channel: "alpha", followed: false };
+  if (!FOLLOWS_SIGN_IN.has(args.command ?? "")) return { channel: "default", followed: false };
+  if (args.signedIn("default") || !args.signedIn("alpha")) {
+    return { channel: "default", followed: false };
+  }
+  return { channel: "alpha", followed: true };
 }
 
 export function configPath(): string {

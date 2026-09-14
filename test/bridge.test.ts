@@ -83,7 +83,7 @@ const TOOLS = {
 };
 
 describe("the stdio bridge", () => {
-  it("serves a legacy client its handshake from the door's discover, and stamps _meta on every request", async () => {
+  it("serves a legacy client its handshake from the server's discover, and stamps _meta on every request", async () => {
     const door = fakeDoor((body) => (body.method === "server/discover" ? DISCOVER : TOOLS));
     const { out, send } = await bridgeWith(door);
     await send({
@@ -245,7 +245,7 @@ describe("the stdio bridge", () => {
     });
   }
 
-  it("rep: the host's own words never reach the door, only what the catalog names", async () => {
+  it("rep: the editor's own words never reach the server, only what the catalog names", async () => {
     const door = servingDoor();
     const { send } = await bridgeWith(door);
     cacheGrammar();
@@ -280,7 +280,7 @@ describe("the stdio bridge", () => {
     expect(Object.keys(args).toSorted()).toEqual(["hints"]);
   });
 
-  it("rep: an ask is forwarded only when it is a handle the door publishes", async () => {
+  it("rep: an ask is forwarded only when it is a handle the server publishes", async () => {
     const door = servingDoor();
     const { send } = await bridgeWith(door);
     cacheGrammar();
@@ -410,7 +410,7 @@ describe("the stdio bridge", () => {
     expect(final.result.content[0]?.text).toContain("Correct");
   });
 
-  it("says to sign in rather than answering an empty list when the door refuses the token", async () => {
+  it("says to sign in rather than answering an empty list when the server refuses the token", async () => {
     const door = fakeDoor(() => "401");
     const { out, send } = await bridgeWith(door);
     await send({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} });
@@ -451,7 +451,7 @@ describe("the stdio bridge", () => {
     });
   }
 
-  it("says so on rep when the door is misrouted, and stays quiet when it is merely down", async () => {
+  it("says so on rep when the server is misrouted, and stays silent when it is merely down", async () => {
     const { readConfig } = await import("../src/config.js");
     const call = { name: "rep", arguments: {} };
 
@@ -468,7 +468,7 @@ describe("the stdio bridge", () => {
     expect(quiet.result.structuredContent).toMatchObject({ kind: "quiet", reason: "degraded" });
   });
 
-  it("a dead door is quiet for rep, the offline list for lists, a readable error otherwise; legacy ping is local", async () => {
+  it("a dead server is silent for rep, the offline list for lists, a readable error otherwise; legacy ping is local", async () => {
     const door = fakeDoor(() => null);
     const { out, send } = await bridgeWith(door);
     const { readConfig } = await import("../src/config.js");

@@ -330,7 +330,7 @@ export class Bridge {
       discover.ok && typeof discover.body.result?.instructions === "string"
         ? discover.body.result.instructions
         : FALLBACK_INSTRUCTIONS;
-    if (!discover.ok) log(`door unreachable at connect (${discover.reason}); serving fallback`);
+    if (!discover.ok) log(`server unreachable at connect (${discover.reason}); serving fallback`);
     this.write({
       jsonrpc: "2.0",
       id,
@@ -519,10 +519,10 @@ export function serve(): void {
     chain = chain
       .then(() => bridge.handleLine(line))
       .catch((error: unknown) => {
-        log(`bridge: ${Error.isError(error) ? error.message : String(error)}`);
+        log(`server process: ${Error.isError(error) ? error.message : String(error)}`);
       });
   });
   lines.on("close", () => process.exit(0));
   updateConfig({ bridgeVersion: SERVER_VERSION });
-  log(`bridge to ${apiOrigin()} on stdio (${SERVER_VERSION})`);
+  log(`server process on stdio, talking to ${apiOrigin()} (${SERVER_VERSION})`);
 }
