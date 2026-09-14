@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.0.5
+
+- The areas you pick can now decide what arrives, not just what comes first. Until today a rep followed whatever the session touched and your areas only broke the tie, so a day in Postgres could ask you about Postgres even if you had only picked Frontend. Setup now asks which you want. "These first" is what you already had and stays the default; "Only these" means a session spent outside your areas gets no rep at all rather than one you did not ask for.
+- `npx atomicreps` says when that silence was the setting doing its job, and how many reps it cost today, so a quiet afternoon has an answer rather than a suspicion.
+- Say "only ask me about my areas" to your agent to turn it on later, or "ask me about everything I touch" to go back.
+- Picking no areas leaves the setting inert. An empty list already means the whole catalog everywhere else, so gating on it would have silenced the door for good.
+
 ## 0.0.4
 
 - The words your agent writes in `touched` no longer leave your machine. They are matched against the published catalog here, and only the handle they resolve to is sent. A phrase that matches nothing is dropped.

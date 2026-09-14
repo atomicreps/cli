@@ -80,7 +80,7 @@ export const FALLBACK_TOOLS: ReadonlyArray<Record<string, unknown>> = [
     name: "settings",
     title: "Intensity, mutes, preferences",
     description:
-      "Intensity, a timed mute, a topic mute for days or forever, an unmute, preferred domains, or the dialog.",
+      "Intensity, a timed mute, a topic mute for days or forever, an unmute, preferred domains, strict, or the dialog.",
     inputSchema: {
       type: "object",
       properties: {
@@ -92,6 +92,7 @@ export const FALLBACK_TOOLS: ReadonlyArray<Record<string, unknown>> = [
         unmute: { type: "string" },
         prefer: { type: "array", items: { type: "string" } },
         dialog: { type: "boolean" },
+        strict: { type: "boolean" },
       },
     },
   },

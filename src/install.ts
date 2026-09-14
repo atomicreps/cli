@@ -35,6 +35,7 @@ import type {
 export const DEFAULT_DRAFT: Draft = {
   prefer: [],
   topics: [],
+  strict: false,
   intensity: "regular",
   levels: { min: 1, max: 5 },
 };
@@ -165,6 +166,31 @@ async function scopeScreen(draft: Draft, stepLine: string): Promise<PickResult<D
   return { ok: true, value: { ...draft, ...draftFrom(groups, picked.value) } };
 }
 
+async function gateScreen(draft: Draft, stepLine: string): Promise<PickResult<Draft>> {
+  if (draft.prefer.length === 0) return { ok: true, value: draft };
+  const picked = await pickOne<boolean>({
+    choices: [
+      {
+        value: false,
+        label: "These first",
+        hint: "Anything you touch can be asked; what you picked comes first.",
+      },
+      {
+        value: true,
+        label: "Only these",
+        hint: "Touch something outside them and no rep arrives at all.",
+      },
+    ],
+    current: draft.strict,
+    heading: "What about everything else?",
+    intro:
+      "A rep follows the work, so a day spent in a language you did not pick can still ask you about it. Choose whether that is welcome.",
+    stepLine,
+  });
+  if (!picked.ok) return picked;
+  return { ok: true, value: { ...draft, strict: picked.value } };
+}
+
 async function cadenceScreen(draft: Draft, stepLine: string): Promise<PickResult<Draft>> {
   const picked = await pickOne<Intensity>({
     choices: CADENCES.map((cadence) => ({
@@ -202,6 +228,7 @@ export function patchOf(draft: Draft): SettingsPatch {
   return {
     prefer: draft.prefer,
     topics: draft.topics,
+    strict: draft.strict,
     intensity: draft.intensity,
     levels: draft.levels,
   };
@@ -214,12 +241,13 @@ function count(n: number, one: string, many = `${one}s`): string {
 export function draftLines(draft: Draft, names: ReadonlyMap<string, string> = new Map()): string[] {
   const cadence = CADENCES.find((c) => c.value === draft.intensity);
   const areas = draft.prefer.map((slug) => names.get(slug) ?? slug).join(", ");
+  const gate = draft.strict ? " · only these" : "";
   const scope =
     draft.prefer.length === 0
       ? "the whole catalog"
       : draft.topics.length === 0
-        ? `${areas}, whole`
-        : `${areas} · ${count(draft.topics.length, "topic")} pinned`;
+        ? `${areas}, whole${gate}`
+        : `${areas} · ${count(draft.topics.length, "topic")} pinned${gate}`;
   const { min, max } = draft.levels;
   const band = min === max ? `level ${min}` : `levels ${min} to ${max}`;
   return [`Areas: ${scope}.`, `Rate: ${cadence?.says ?? draft.intensity}.`, `Depth: ${band}.`];
@@ -258,7 +286,7 @@ export async function runInstall(deps: {
   }
 
   let draft = DEFAULT_DRAFT;
-  const screens = [scopeScreen, cadenceScreen, levelsScreen];
+  const screens = [scopeScreen, gateScreen, cadenceScreen, levelsScreen];
   const steps = screens.length + 1;
   for (let i = 0; i < screens.length;) {
     const screen = screens[i];

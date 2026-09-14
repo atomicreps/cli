@@ -39,12 +39,14 @@ describe("the patch the door receives", () => {
       patchOf({
         prefer: ["frontend"],
         topics: ["css"],
+        strict: true,
         intensity: "intense",
         levels: { min: 2, max: 5 },
       }),
     ).toEqual({
       prefer: ["frontend"],
       topics: ["css"],
+      strict: true,
       intensity: "intense",
       levels: { min: 2, max: 5 },
     });

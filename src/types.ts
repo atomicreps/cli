@@ -88,6 +88,7 @@ export type SettingsPatch = {
   unmute?: string;
   prefer?: string[];
   dialog?: boolean;
+  strict?: boolean;
   topics?: string[];
   levels?: { min: number; max: number };
 };
@@ -178,6 +179,7 @@ export type HookOutput =
 export type Draft = {
   prefer: string[];
   topics: string[];
+  strict: boolean;
   intensity: Intensity;
   levels: { min: number; max: number };
 };
