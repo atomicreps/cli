@@ -100,10 +100,18 @@ export function rep(
   return call("/mcp/rep", { method: "POST", body: request, token: token(), deadlineMs, signal });
 }
 
-export function answer(id: string | undefined, pick: string): Promise<ApiResult<ToolReply>> {
+export function answer(
+  id: string | undefined,
+  pick: string,
+  sure?: boolean,
+): Promise<ApiResult<ToolReply>> {
   return call("/mcp/answer", {
     method: "POST",
-    body: id === undefined ? { pick } : { id, pick },
+    body: {
+      ...(id === undefined ? {} : { id }),
+      pick,
+      ...(sure === undefined ? {} : { sure }),
+    },
     token: token(),
     deadlineMs: ANSWER_DEADLINE_MS,
   });

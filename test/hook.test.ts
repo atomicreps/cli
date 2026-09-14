@@ -42,6 +42,30 @@ function messageOf(out: HookOutput | null): string | undefined {
   return out !== null && "systemMessage" in out ? out.systemMessage : undefined;
 }
 
+function repDoor(release: { version: string; notes: string }) {
+  return vi.fn(
+    async () =>
+      new Response(
+        JSON.stringify({
+          text: BLOCK,
+          data: {
+            kind: "question",
+            id: "q1",
+            topicSlug: "react",
+            topicSource: "touched",
+            gated: null,
+            nextEligibleAt: Date.now() + 60 * 60_000,
+            lane: "pushed",
+            handle: "react.hooks_core",
+            offer: [],
+          },
+          client: { grammarVersion: "1", muteKeys: [], release },
+        }),
+        { headers: { "content-type": "application/json" } },
+      ),
+  );
+}
+
 async function load() {
   const hook = await import("../src/hook.js");
   const config = await import("../src/config.js");
@@ -191,6 +215,34 @@ describe("atomicreps hook", () => {
     expect(store.openOffer()).toEqual([{ handle: "css.grid", name: "CSS · Grid" }]);
   });
 
+  it("carries the confidence suffix to the door, and sends nothing when there was none", async () => {
+    const { hook, config, store } = await load();
+    const bodies: Array<Record<string, unknown>> = [];
+    const verdict = vi.fn(async (_url: string, init?: RequestInit) => {
+      bodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+      return new Response(
+        JSON.stringify({
+          text: "✅ **Correct** · useRef\n──────────────────────────\nBecause.",
+          data: { status: "answered", correct: true, offer: [] },
+        }),
+        { headers: { "content-type": "application/json" } },
+      );
+    });
+    vi.stubGlobal("fetch", verdict);
+    for (const [index, typed] of ["A!", "b?", "C"].entries()) {
+      config.writeConfig({ token: "arep_test", nextEligibleAt: Date.now() + 60_000 });
+      store.observeRep(
+        { kind: "question", id: `q${String(index)}`, topicSlug: "react" },
+        BLOCK,
+        Date.now() - 10_000,
+      );
+      await hook.runHook(input(typed));
+    }
+    expect(bodies[0]).toEqual({ id: "q0", pick: "A", sure: true });
+    expect(bodies[1]).toEqual({ id: "q1", pick: "B", sure: false });
+    expect(bodies[2]).toEqual({ id: "q2", pick: "C" });
+  });
+
   it("a single digit under a verdict asks for that offer entry on the asked lane", async () => {
     const { hook, config, store } = await load();
     config.writeConfig({ token: "arep_test", nextEligibleAt: Date.now() + 60_000 });
@@ -331,6 +383,45 @@ describe("atomicreps hook", () => {
     );
     expect(await hook.runHook(stopIn())).toBeNull();
     expect((config.readConfig().nextEligibleAt ?? 0) > Date.now()).toBe(true);
+  });
+});
+
+describe("two processes, two versions", () => {
+  it("names a bridge the editor left behind, once, under the printed rep", async () => {
+    const { hook, config } = await load();
+    config.writeConfig({ token: "arep_test", bridgeVersion: "0.0.3" });
+    process.env.NO_COLOR = "1";
+    vi.stubGlobal(
+      "fetch",
+      repDoor({ version: "0.0.4", notes: "https://example.test/CHANGELOG.md" }),
+    );
+
+    const first = messageOf(await hook.runHook(stopIn())) ?? "";
+    expect(first).toContain("Which hook?");
+    expect(first).toContain("atomicreps 0.0.3 → 0.0.4");
+    expect(first).toContain("Restart your editor");
+    expect(first).toContain("https://example.test/CHANGELOG.md");
+    expect(config.readConfig().bridgeVersion).toBeUndefined();
+
+    config.updateConfig({ nextEligibleAt: 0, lastPushTouch: "" });
+    const second = messageOf(await hook.runHook(stopIn())) ?? "";
+    expect(second, "said once, not every turn").not.toContain("Restart your editor");
+    delete process.env.NO_COLOR;
+  });
+
+  it("says nothing when the bridge is current, and never tells the agent", async () => {
+    const { hook, config } = await load();
+    config.writeConfig({ token: "arep_test", bridgeVersion: "0.0.4" });
+    process.env.NO_COLOR = "1";
+    vi.stubGlobal(
+      "fetch",
+      repDoor({ version: "0.0.4", notes: "https://example.test/CHANGELOG.md" }),
+    );
+    const out = await hook.runHook(stopIn());
+    expect(messageOf(out) ?? "").not.toContain("Restart your editor");
+    expect(contextOf(out)).toBeUndefined();
+    expect(config.readConfig().bridgeVersion, "a current bridge keeps its stamp").toBe("0.0.4");
+    delete process.env.NO_COLOR;
   });
 });
 
@@ -502,6 +593,18 @@ describe("the block as the terminal prints it", () => {
     expect(messageBlock(block), "colour when nothing refuses it").toContain(`${ESC}[1m`);
     process.env.NO_COLOR = "1";
     expect(messageBlock(block), "none when the person refused it").not.toContain(ESC);
+    delete process.env.NO_COLOR;
+  });
+
+  it("says nothing when no bridge has ever stamped, which is a hook on its own", async () => {
+    const { hook, config } = await load();
+    config.writeConfig({ token: "arep_test" });
+    process.env.NO_COLOR = "1";
+    vi.stubGlobal(
+      "fetch",
+      repDoor({ version: "9.9.9", notes: "https://example.test/CHANGELOG.md" }),
+    );
+    expect(messageOf(await hook.runHook(stopIn())) ?? "").not.toContain("Restart your editor");
     delete process.env.NO_COLOR;
   });
 });

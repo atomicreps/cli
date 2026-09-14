@@ -103,9 +103,9 @@ describe("the letter a rep is answered with", () => {
   });
 
   it("reads the letter out of a prompt the same way", () => {
-    expect(letterOf("B")).toBe("B");
-    expect(letterOf("c.")).toBe("C");
-    expect(letterOf(" d) because")).toBe("D");
+    expect(letterOf("B")?.pick).toBe("B");
+    expect(letterOf("c.")?.pick).toBe("C");
+    expect(letterOf(" d) because")?.pick).toBe("D");
     expect(letterOf("E")).toBeNull();
     expect(letterOf("f)")).toBeNull();
   });

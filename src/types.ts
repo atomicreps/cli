@@ -5,6 +5,12 @@ export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+export function stringList(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((entry): entry is string => typeof entry === "string")
+    : [];
+}
+
 export const PICKS = ["A", "B", "C", "D"] as const;
 export type Pick = (typeof PICKS)[number];
 
@@ -14,7 +20,11 @@ export function asPick(value: unknown): Pick | null {
   return (PICKS as readonly string[]).includes(upper) ? (upper as Pick) : null;
 }
 
-export type ClientState = { grammarVersion?: string; muteKeys?: string[] };
+export type ClientState = {
+  grammarVersion?: string;
+  muteKeys?: string[];
+  release?: { version?: string; notes?: string };
+};
 
 export type ToolReply = {
   text: string;
@@ -71,6 +81,7 @@ export type Intensity = (typeof INTENSITIES)[number];
 
 export type SettingsPatch = {
   intensity?: Intensity;
+  confidencePrompt?: string;
   muteMinutes?: number;
   mute?: string;
   days?: number;
@@ -108,6 +119,7 @@ export type Config = {
   dialog?: boolean;
   setupAt?: EpochMs;
   lastPushTouch?: string;
+  bridgeVersion?: string | undefined;
 };
 
 export type OfferEntry = { handle: string; name: string };
@@ -127,10 +139,18 @@ export type StoredRep = {
 
 export type PathRule = { pattern: string; key: string; weight: number };
 export type WordRule = { words: string; key: string; weight: number };
+
+export type TouchVocabulary = {
+  handles: readonly string[];
+  packages: readonly string[];
+  extensions: readonly string[];
+};
+
 export type TouchGrammar = {
   version: string;
   paths: readonly PathRule[];
   words: readonly WordRule[];
+  vocabulary: TouchVocabulary;
 };
 
 export type TouchedEntry = { key: string; weight: number };

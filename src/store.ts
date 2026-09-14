@@ -1,3 +1,4 @@
+import { rmSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 import * as api from "./api.js";
@@ -25,6 +26,7 @@ import {
   type StoredRep,
   type TopicEntry,
   type TouchGrammar,
+  stringList,
 } from "./types.js";
 
 type TopicsFile = { fetchedAt: number; topics: TopicEntry[]; domains?: DomainEntry[] };
@@ -45,6 +47,15 @@ function writeJson(name: string, value: unknown): void {
     ensureDir(dir());
     writeJsonAtomic(join(dir(), name), value, FILE_MODE);
   } catch {
+  }
+}
+
+export function purgeLocalData(): void {
+  for (const name of [FILES.reps, FILES.status, FILES.errorLog]) {
+    try {
+      rmSync(join(dir(), name), { force: true });
+    } catch {
+    }
   }
 }
 
@@ -74,9 +85,25 @@ export async function domainCatalog(now = clock.now()): Promise<DomainEntry[]> {
   return fresh?.domains ?? cached?.domains ?? [];
 }
 
+let grammarMemo: { stamp: string; grammar: TouchGrammar | null } | null = null;
+
+function grammarStamp(): string | null {
+  try {
+    const { mtimeMs, size } = statSync(join(dir(), FILES.grammar));
+    return `${mtimeMs}:${size}`;
+  } catch {
+    return null;
+  }
+}
+
 export function cachedGrammar(): TouchGrammar | null {
-  const file = readJson<GrammarFile>(FILES.grammar);
-  return file ? parseGrammar(file.grammar) : null;
+  const stamp = grammarStamp();
+  if (stamp === null) return null;
+  if (grammarMemo?.stamp !== stamp) {
+    const file = readJson<GrammarFile>(FILES.grammar);
+    grammarMemo = { stamp, grammar: file ? parseGrammar(file.grammar) : null };
+  }
+  return grammarMemo.grammar;
 }
 
 export async function ensureGrammar(
@@ -221,7 +248,7 @@ export function streakForStatus(now = clock.now()): number | null {
 
 export function cachedMuteKeys(now = clock.now()): string[] {
   const keys = readStatusCache(now)?.muteKeys;
-  return Array.isArray(keys) ? keys.filter((k): k is string => typeof k === "string") : [];
+  return stringList(keys);
 }
 
 export function cachedGrammarVersion(now = clock.now()): string | undefined {

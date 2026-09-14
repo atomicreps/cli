@@ -84,6 +84,36 @@ const CASES: ReadonlyArray<
     { kind: "grade", id: "q1", pick: "B" },
   ],
   [
+    "a letter with ! is that letter, and the person saying they were sure",
+    typed("A!"),
+    given({ pending: served() }),
+    { kind: "grade", id: "q1", pick: "A", sure: true },
+  ],
+  [
+    "a letter with ? is that letter, and the person saying they were not",
+    typed("b?"),
+    given({ pending: served() }),
+    { kind: "grade", id: "q1", pick: "B", sure: false },
+  ],
+  [
+    "no suffix says nothing about how sure they were, which is not the same as unsure",
+    typed("A"),
+    given({ pending: served() }),
+    { kind: "grade", id: "q1", pick: "A" },
+  ],
+  [
+    "a doubled suffix is not the footer's ask and grades nothing",
+    typed("A!!"),
+    given({ pending: served() }),
+    { kind: "quiet" },
+  ],
+  [
+    "a word that begins with a letter is still a word",
+    typed("Absolutely"),
+    given({ pending: served() }),
+    { kind: "quiet" },
+  ],
+  [
     "a letter with nothing pending falls through to the clock",
     typed("B"),
     given({ nextEligibleAt: NOW + 60_000 }),

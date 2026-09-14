@@ -7,6 +7,7 @@ import {
   clientLabel,
   hostLabel,
   readConfig,
+  rejectedOverrides,
   siteOrigin,
   updateConfig,
   writeConfig,
@@ -23,6 +24,7 @@ import {
 } from "./connect.js";
 import {
   CLEAR,
+  ENV,
   LOGIN_DEADLINE_MS,
   QUICK_MUTE_MINUTES,
   QUICK_MUTE_MS,
@@ -495,6 +497,11 @@ export async function connect(interactive = isInteractive()): Promise<void> {
 export async function doctor(): Promise<number> {
   const config = readConfig();
   const lines: string[] = [`channel: ${channelOf()}`, `door: ${apiOrigin()}`];
+  for (const { name, value } of rejectedOverrides()) {
+    lines.push(
+      `${name} ignored: ${value} is not an Atomic Reps origin. Set ${ENV.unsafeOrigin}=1 for local development.`,
+    );
+  }
   let failures = 0;
   if (!config.token) {
     lines.push("token: none. Run npx atomicreps to sign in.");

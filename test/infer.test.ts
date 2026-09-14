@@ -6,6 +6,18 @@ import { describe, expect, it } from "vitest";
 
 import { MAX_SCAN_FILES } from "../src/constants.js";
 import { inferHints, inferSession } from "../src/infer.js";
+import type { TouchGrammar } from "../src/types.js";
+
+const KNOWS: TouchGrammar = {
+  version: "vocab",
+  paths: [],
+  words: [],
+  vocabulary: {
+    handles: [],
+    packages: ["hono", "react"],
+    extensions: ["ts", "py", "pyc", "png", "claude outputs", "passwd", "etc"],
+  },
+};
 
 describe("inferHints", () => {
   it("returns inside the budget even when git hangs", async () => {
@@ -18,7 +30,7 @@ describe("inferHints", () => {
     process.env.PATH = `${bin}:${previousPath}`;
     try {
       const started = Date.now();
-      const hints = await inferHints(dir, 150);
+      const hints = await inferHints(dir, 150, KNOWS);
       expect(Date.now() - started).toBeLessThan(1500);
       expect(hints.packages).toContain("hono");
     } finally {
@@ -35,7 +47,7 @@ describe("inferHints", () => {
       'import { Hono } from "hono";\nexport const app = new Hono();\n',
     );
     writeFileSync(join(dir, "package.json"), JSON.stringify({ dependencies: { react: "19" } }));
-    const hints = await inferHints(dir, 2000);
+    const hints = await inferHints(dir, 2000, KNOWS);
     expect(hints.extensions).toContain("ts");
     expect(hints.packages[0]).toBe("hono");
     expect(hints.packages).toContain("react");
@@ -67,6 +79,7 @@ describe("inferHints", () => {
         { words: "copy package.json", key: "docker.dockerfile", weight: 3 },
         { words: "create index", key: "sql.indexing", weight: 3 },
       ],
+      vocabulary: { handles: [], packages: [], extensions: [] },
     };
     const hints = await inferHints(dir, 2000, grammar);
     const keys = hints.touched.map((t) => t.key);
@@ -104,7 +117,7 @@ describe("git paths that need quoting", () => {
     const previousPath = process.env.PATH;
     process.env.PATH = `${join(dir, "bin")}:${previousPath}`;
     try {
-      const hints = await inferHints(dir, 5000);
+      const hints = await inferHints(dir, 5000, KNOWS);
       for (const shape of hints.extensions) {
         expect(shape).not.toContain('"');
         expect(shape).not.toContain("\\");
@@ -144,7 +157,7 @@ describe("running from a subdirectory of the repo", () => {
     const previousPath = process.env.PATH;
     process.env.PATH = `${bin}:${previousPath}`;
     try {
-      const fromSub = await inferHints(sub, 5000);
+      const fromSub = await inferHints(sub, 5000, KNOWS);
       expect(fromSub.packages, "the import in the changed file must be found").toContain("hono");
     } finally {
       process.env.PATH = previousPath;
@@ -171,7 +184,7 @@ describe("running from a subdirectory of the repo", () => {
     const previousPath = process.env.PATH;
     process.env.PATH = `${bin}:${previousPath}`;
     try {
-      const hints = await inferHints(root, 5000);
+      const hints = await inferHints(root, 5000, KNOWS);
       expect(hints.extensions).not.toContain("passwd");
       expect(hints.extensions.some((e) => e.includes("etc"))).toBe(false);
     } finally {
@@ -191,7 +204,7 @@ describe("a folder that is not a repository", () => {
   }
 
   it("still sees what a student is working on, and skips the toolchain's leavings", async () => {
-    const session = await inferSession(coursework(), 200);
+    const session = await inferSession(coursework(), 200, KNOWS);
     expect(session.hints.extensions).toContain("py");
     expect(session.hints.extensions).not.toContain("pyc");
     expect(session.mark, "a folder it could read is a folder it can mark").not.toBeNull();

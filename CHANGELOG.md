@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.0.4
+
+- The words your agent writes in `touched` no longer leave your machine. They are matched against the published catalog here, and only the handle they resolve to is sent. A phrase that matches nothing is dropped.
+- Package names, file extensions and folder names are sent only where the public catalog already knows them. A private package name resolves to its public alias word (`@acme/react-internal` becomes `react`) or is dropped, and the free-text `topic` an editor may pass is reduced to catalog words. Everything else an MCP host puts in a `rep` call is dropped rather than forwarded.
+- Answering with `A!` or `B?` works. The door asks for the letter and, optionally, `!` when you were sure and `?` when you were not; the hook did not recognise the suffix and the answer was read as ordinary prose and lost.
+- `ATOMICREPS_API` and `ATOMICREPS_SITE` are honoured only for an Atomic Reps origin or a loopback address, since your token is attached to whatever the first names and your browser is sent to the second. Anything else is ignored and `npx atomicreps doctor` says so; `ATOMICREPS_UNSAFE_ORIGIN=1` restores the old behaviour for local development.
+- `npx atomicreps logout --purge` also deletes the reps, the status and the error log this machine cached. For a shared machine.
+- SECURITY.md says what the trust boundary is and where to report a vulnerability.
+- Tells you when the bridge your editor is running has fallen behind. The hook is respawned through npx every turn, so it is current; the bridge is started once by your editor and keeps whatever it resolved then, for as long as the editor stays open. When the two differ, one line under the rep says so, links these notes, and asks you to restart. Said once per bridge start, not every turn.
+- Fixes `permission denied` on upgrade. The published `dist/cli.js` shipped without its executable bit. A first install still worked, because npm sets the bit when it creates the link, but an npx cache that already held an older copy replaced the file in place and kept the old link, so the next run refused to start. Anyone who ran 0.0.1 or 0.0.2 before 0.0.3 hit this; a clear npx cache was the only way out.
+
 ## 0.0.3
 
 Three themes: a rep arrives when your turn is actually over, the door stops changing your pace behind your back, and it stops failing silently.

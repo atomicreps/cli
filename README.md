@@ -10,6 +10,7 @@ npx atomicreps connect    register the server with your editor
 npx atomicreps mcp        the stdio bridge (what the editor launches)
 npx atomicreps doctor     token, server ping, grammar, quiet clock, allowlist
 npx atomicreps logout     forget the token on this machine
+npx atomicreps logout --purge   also forget your reps and status; for a shared machine
 ```
 
 Add `--alpha` to any command to use the staging door. It keeps its own token and
@@ -28,8 +29,8 @@ it for thirty days, "unmute Swift" lifts it. "How am I doing" prints your summar
 
 The server enforces the manners, not the agent: a minimum gap between pushed
 reps, a daily cap, mute and off, a refusal for an answer typed within seconds of
-the serve, and no answer key in any rep payload. Two ignored reps quiet the door
-for the day. Every failure answers quiet rather than an error; `doctor` says why.
+the serve, and no answer key in any rep payload. Nothing changes your pace on its
+own. Every failure answers quiet rather than an error; `doctor` says why.
 
 ## How it fits together
 
@@ -51,7 +52,7 @@ flowchart LR
     CFG[config.ts<br/>token, quiet clock]
     API[api.ts<br/>deadline, failure as a value]
   end
-  DOOR[(Convex HTTP door<br/>/mcp/*)]
+  DOOR[(Atomic Reps HTTP door<br/>/mcp/*)]
 
   CC -->|stdin JSON| HOOK
   MC -->|JSON-RPC over stdio| BRIDGE
@@ -101,29 +102,49 @@ from the editor is forwarded to the door with your token, and the answer comes
 back. The door speaks the 2026-07-28 revision (stateless, `server/discover`,
 mirrored headers) and the older `initialize` handshake for clients still on it.
 
-What leaves your machine on a `rep` call: the agent's words, package names from
-the manifest, the file extensions and top-level folder names you touched, and
-catalog handles with small weights. Never your code, never a file's contents,
-never a prompt. `npx atomicreps setup` prints the exact payload for the repo you
-are standing in, before you sign in.
+What leaves your machine on a `rep` call: catalog handles with small weights,
+and the names of packages, file extensions and folders the public catalog
+already knows. Nothing else. The agent's `touched` words are resolved to
+handles here, on your machine, and the words themselves are not sent; a package
+name the catalog has no alias for is dropped, and a private name that resolves
+through its head (`@acme/react-internal`) is sent as the alias word (`react`)
+and never as itself. Never your code, never a file's contents, never a prompt.
+`npx atomicreps setup` prints the exact payload for the repo you are standing
+in, before you sign in.
 
-The table that maps paths and diff words to handles is published by the server
-and cached for a month.
+The table that maps paths and diff words to handles, and the vocabulary that
+filters the rest, are published by the server and cached for a month.
+
+`ATOMICREPS_API` is honoured only when it names an Atomic Reps origin or a
+loopback address, because your token is attached to whatever it says. Anything
+else is ignored and reported by `npx atomicreps doctor`; set
+`ATOMICREPS_UNSAFE_ORIGIN=1` if you really mean it.
 
 ## Login
 
 `npx atomicreps` prints a code. You type it at atomicreps.com/connect while
 signed in, so a forwarded link approves nothing. The token lands in
 `~/.config/atomicreps/config.json` (mode 0600), prefixed `arep_` so secret
-scanners find it, and can be revoked on your account page.
+scanners find it, and can be revoked on your account page. `npx atomicreps
+logout` forgets it; `logout --purge` also deletes the reps and status this
+machine cached.
 
-## Development
+The trust boundary, and how to report a vulnerability: SECURITY.md.
+
+## Check it yourself
+
+This repository exists so you can read what runs on your machine. `dist/cli.js`
+is built from these files and nothing else, and the package has no runtime
+dependencies.
 
 ```
-pnpm install --ignore-workspace
-pnpm build     # dist/cli.js, one file, no runtime dependencies
-pnpm test
-ATOMICREPS_API=https://<deployment>.convex.site node dist/cli.js doctor
+npm install
+npm run build    # writes dist/cli.js from src
+npm test         # the behaviour described above, as tests
 ```
+
+To compare with what npm serves: `npm pack atomicreps`, then read its
+`dist/cli.js` beside the one you just built. Everything the client sends is in
+`src/api.ts`; everything it reads from your repository is in `src/infer.ts`.
 
 MIT.

@@ -1,4 +1,4 @@
-import { mkdtempSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -10,12 +10,14 @@ beforeEach(() => {
   configHome = mkdtempSync(join(tmpdir(), "atomicreps-bridge-"));
   process.env.XDG_CONFIG_HOME = configHome;
   process.env.ATOMICREPS_API = "https://door.invalid";
+  process.env.ATOMICREPS_UNSAFE_ORIGIN = "1";
   vi.resetModules();
 });
 
 afterEach(() => {
   vi.unstubAllGlobals();
   delete process.env.ATOMICREPS_API;
+  delete process.env.ATOMICREPS_UNSAFE_ORIGIN;
 });
 
 type Sent = { headers: Record<string, string>; body: Record<string, unknown> };
@@ -198,13 +200,116 @@ describe("the stdio bridge", () => {
     expect(call?.headers["mcp-name"]).toBe("rep");
     const callParams = call?.body.params as { arguments: Record<string, unknown> } | undefined;
     const args = callParams?.arguments ?? {};
-    expect(args.touched).toEqual(["useEffect cleanup"]);
+    expect(args.touched).toBeUndefined();
     expect(args.hints).toMatchObject({ packages: expect.any(Array), touched: expect.any(Array) });
     expect(store.pendingRep()?.id).toBe("q1");
     expect(store.pendingRep()?.handle).toBe("react.hooks_core");
     expect((readConfig().nextEligibleAt ?? 0) > Date.now()).toBe(true);
     const served = out[2] as { result: { structuredContent: { id: string } } };
     expect(served.result.structuredContent.id).toBe("q1");
+  });
+
+  function argumentsOf(call: Sent | undefined): Record<string, unknown> {
+    const params = call?.body.params as { arguments?: Record<string, unknown> } | undefined;
+    return params?.arguments ?? {};
+  }
+
+  function cacheGrammar(): void {
+    mkdirSync(join(configHome, "atomicreps"), { recursive: true });
+    writeFileSync(
+      join(configHome, "atomicreps", "grammar.json"),
+      JSON.stringify({
+        fetchedAt: Date.now(),
+        grammar: {
+          version: "v1",
+          paths: [],
+          words: [{ words: "useeffect cleanup", key: "react.effects", weight: 2 }],
+          vocabulary: {
+            handles: ["react.effects", "react.hooks_core"],
+            packages: ["react"],
+            extensions: ["ts"],
+          },
+        },
+      }),
+    );
+  }
+
+  function servingDoor() {
+    return fakeDoor((body) => {
+      if (body.method === "server/discover") return DISCOVER;
+      return {
+        resultType: "complete",
+        content: [{ type: "text", text: BLOCK }],
+        structuredContent: { kind: "question", text: BLOCK, id: "q1", topicSlug: "react" },
+      };
+    });
+  }
+
+  it("rep: the host's own words never reach the door, only what the catalog names", async () => {
+    const door = servingDoor();
+    const { send } = await bridgeWith(door);
+    cacheGrammar();
+    await send({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "initialize",
+      params: { protocolVersion: "2025-11-25" },
+    });
+    await send({
+      jsonrpc: "2.0",
+      id: 2,
+      method: "tools/call",
+      params: {
+        name: "rep",
+        arguments: {
+          touched: ["def add(x, xs=[]):", "useEffect cleanup"],
+          topic: "customer fraud scoring in checkout",
+          packages: ["@bank/risk-engine"],
+          notes: "the user said their card was declined",
+          kind: "sideways",
+        },
+      },
+    });
+    const sent = JSON.stringify(door.seen[1]?.body);
+    for (const leak of ["add(", "fraud", "bank", "notes", "declined", "sideways"]) {
+      expect(sent, leak).not.toContain(leak);
+    }
+    const args = argumentsOf(door.seen[1]);
+    const hints = args.hints as { touched: Array<{ key: string; weight: number }> };
+    expect(hints.touched).toContainEqual({ key: "react.effects", weight: 3 });
+    expect(Object.keys(args).toSorted()).toEqual(["hints"]);
+  });
+
+  it("rep: an ask is forwarded only when it is a handle the door publishes", async () => {
+    const door = servingDoor();
+    const { send } = await bridgeWith(door);
+    cacheGrammar();
+    await send({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "initialize",
+      params: { protocolVersion: "2025-11-25" },
+    });
+    await send({
+      jsonrpc: "2.0",
+      id: 2,
+      method: "tools/call",
+      params: { name: "rep", arguments: { ask: "internal.secret_project" } },
+    });
+    const dropped = argumentsOf(door.seen[1]);
+    expect(dropped.ask).toBeUndefined();
+    expect(JSON.stringify(door.seen[1]?.body)).not.toContain("secret_project");
+
+    await send({
+      jsonrpc: "2.0",
+      id: 3,
+      method: "tools/call",
+      params: { name: "rep", arguments: { ask: "React.Hooks_core", lane: "asked" } },
+    });
+    const kept = argumentsOf(door.seen[2]);
+    expect(kept.ask).toBe("react.hooks_core");
+    expect(kept.lane).toBe("asked");
+    expect(kept.hints).toBeUndefined();
   });
 
   it("answer: the verdict and its offer are noted so a digit resolves locally", async () => {

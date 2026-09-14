@@ -7,6 +7,7 @@ import {
   channelOf,
   configPath,
   isAlpha,
+  rejectedOverrides,
   siteOrigin,
   setChannel,
 } from "../src/config.js";
@@ -17,6 +18,7 @@ afterEach(() => {
   setChannel("default");
   delete process.env.ATOMICREPS_API;
   delete process.env.ATOMICREPS_SITE;
+  delete process.env.ATOMICREPS_UNSAFE_ORIGIN;
 });
 
 describe("switching channel", () => {
@@ -47,6 +49,31 @@ describe("switching channel", () => {
   it("the site origin no longer trails the API origin", () => {
     process.env.ATOMICREPS_API = "https://api.staging.atomicreps.com";
     expect(siteOrigin()).toBe(DEFAULT_SITE);
+  });
+});
+
+describe("which origins an override may name", () => {
+  it("ignores a stranger and says which value it ignored", () => {
+    process.env.ATOMICREPS_API = "https://evil.example";
+    expect(apiOrigin()).toBe(DEFAULT_API);
+    expect(rejectedOverrides()).toEqual([
+      { name: "ATOMICREPS_API", value: "https://evil.example" },
+    ]);
+  });
+
+  it("honours the stranger once the unsafe flag is set, and reports nothing", () => {
+    process.env.ATOMICREPS_API = "https://evil.example";
+    process.env.ATOMICREPS_UNSAFE_ORIGIN = "1";
+    expect(apiOrigin()).toBe("https://evil.example");
+    expect(rejectedOverrides()).toEqual([]);
+  });
+
+  it("takes our own doors and a loopback port without the flag", () => {
+    for (const origin of [ALPHA_API, "http://localhost:47035", "http://[::1]:8080/"]) {
+      process.env.ATOMICREPS_API = origin;
+      expect(apiOrigin(), origin).toBe(origin.replace(/\/+$/, ""));
+      expect(rejectedOverrides(), origin).toEqual([]);
+    }
   });
 });
 

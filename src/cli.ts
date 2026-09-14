@@ -5,6 +5,7 @@ import { install, needsSetup } from "./install.js";
 import { serve } from "./mcp.js";
 import { isInteractive } from "./screen.js";
 import { statusLine } from "./statusline.js";
+import { purgeLocalData } from "./store.js";
 import { connect, doctor, home, login } from "./tui.js";
 import { SERVER_VERSION } from "./version.js";
 
@@ -17,6 +18,7 @@ const HELP = `atomicreps - one short rep about the thing you just built, inside 
   npx atomicreps mcp        the stdio bridge to the door (what the editor launches)
   npx atomicreps doctor     token, server ping, quiet clock, allowlist
   npx atomicreps logout     forget the token on this machine
+  npx atomicreps logout --purge   also forget your reps and status; for a shared machine
   npx atomicreps hook       the Claude Code plugin's Stop and UserPromptSubmit hook (stdin JSON in, JSON out)
   npx atomicreps statusline one line for a Claude Code status line
 
@@ -95,8 +97,14 @@ async function main(raw: string[]): Promise<number> {
     case "doctor":
       return await doctor();
     case "logout": {
+      const purge = argv.includes("--purge");
       writeConfig({});
-      process.stdout.write("Signed out on this machine.\n");
+      if (purge) purgeLocalData();
+      process.stdout.write(
+        purge
+          ? "Signed out and forgot your reps and status on this machine.\n"
+          : "Signed out on this machine.\n",
+      );
       return 0;
     }
     case "help":

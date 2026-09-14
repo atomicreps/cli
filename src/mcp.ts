@@ -26,6 +26,7 @@ import {
 import { FALLBACK_INSTRUCTIONS, FALLBACK_TOOLS } from "./format.js";
 import { inferHints } from "./infer.js";
 import { cachedGrammar, observeRep, observeVerdict, writeStatusCache } from "./store.js";
+import { EMPTY_GRAMMAR, knownHandle, resolvePhrases, resolveTopic } from "./touch.js";
 import {
   isRecord,
   type DoorCall,
@@ -33,6 +34,7 @@ import {
   type JsonRpcId,
   type JsonRpcMessage,
   type ReportableFailure,
+  type TouchGrammar,
 } from "./types.js";
 import { SERVER_VERSION } from "./version.js";
 
@@ -80,6 +82,9 @@ const DEGRADED_LIST: Record<string, Record<string, unknown>> = {
 function unreachableText(reason: string): string {
   return `Atomic Reps is unreachable (${reason}). ${DOCTOR_HINT}`;
 }
+
+const REP_KINDS: ReadonlySet<string> = new Set(["auto", "question", "insight"]);
+const REP_LANES: ReadonlySet<string> = new Set(["asked", "pushed"]);
 
 const NAMED: Record<string, "name" | "uri"> = {
   "tools/call": "name",
@@ -336,22 +341,54 @@ export class Bridge {
     });
   }
 
+  private async repArguments(
+    raw: Record<string, unknown>,
+    grammar: TouchGrammar,
+    ask: string | undefined,
+    lane: string | undefined,
+    asked: boolean,
+  ): Promise<Record<string, unknown>> {
+    const args: Record<string, unknown> = {};
+    if (!asked) {
+      const hints = await inferHints(this.cwd, INFER_BUDGET_MS, grammar);
+      const phrases = Array.isArray(raw.touched) ? resolvePhrases(grammar, raw.touched) : [];
+      args.hints = { ...hints, touched: [...phrases, ...hints.touched] };
+    }
+    const topic = typeof raw.topic === "string" ? resolveTopic(grammar, raw.topic) : undefined;
+    if (topic !== undefined) args.topic = topic;
+    if (ask !== undefined) args.ask = ask;
+    if (lane !== undefined) args.lane = lane;
+    const exclude = typeof raw.exclude === "string" ? knownHandle(grammar, raw.exclude) : undefined;
+    if (exclude !== undefined) args.exclude = exclude;
+    if (typeof raw.kind === "string" && REP_KINDS.has(raw.kind)) args.kind = raw.kind;
+    return args;
+  }
+
   private async handleToolCall(id: JsonRpcId, params: Record<string, unknown>): Promise<void> {
     const name = typeof params.name === "string" ? params.name : "";
-    const args = isRecord(params.arguments) ? { ...params.arguments } : {};
+    const raw = isRecord(params.arguments) ? params.arguments : {};
     const now = clock.now();
-    const asked = (typeof args.ask === "string" && args.ask !== "") || args.lane === "asked";
 
-    if (name === "rep" && !asked) {
-      const quietUntil = readConfig().nextEligibleAt;
-      if (typeof quietUntil === "number" && clock.locallyQuiet(quietUntil, now)) {
-        return this.reply(id, {
-          content: [{ type: "text", text: "" }],
-          structuredContent: { kind: "quiet", reason: "gap", nextEligibleAt: quietUntil },
-        });
+    let args: Record<string, unknown>;
+    let asked: boolean;
+    if (name === "rep") {
+      const grammar = cachedGrammar() ?? EMPTY_GRAMMAR;
+      const ask = typeof raw.ask === "string" ? knownHandle(grammar, raw.ask) : undefined;
+      const lane = typeof raw.lane === "string" && REP_LANES.has(raw.lane) ? raw.lane : undefined;
+      asked = ask !== undefined || lane === "asked";
+      if (!asked) {
+        const quietUntil = readConfig().nextEligibleAt;
+        if (typeof quietUntil === "number" && clock.locallyQuiet(quietUntil, now)) {
+          return this.reply(id, {
+            content: [{ type: "text", text: "" }],
+            structuredContent: { kind: "quiet", reason: "gap", nextEligibleAt: quietUntil },
+          });
+        }
       }
-      if (!isRecord(args.hints))
-        args.hints = await inferHints(this.cwd, INFER_BUDGET_MS, cachedGrammar());
+      args = await this.repArguments(raw, grammar, ask, lane, asked);
+    } else {
+      args = { ...raw };
+      asked = false;
     }
 
     const message: JsonRpcMessage = {
@@ -481,5 +518,6 @@ export function serve(): void {
       });
   });
   lines.on("close", () => process.exit(0));
+  updateConfig({ bridgeVersion: SERVER_VERSION });
   log(`bridge to ${apiOrigin()} on stdio (${SERVER_VERSION})`);
 }

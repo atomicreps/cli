@@ -1,6 +1,6 @@
 {
   "name": "atomicreps",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "description": "One short retrieval question about the thing you just built, inside Claude Code, Cursor, Codex or any MCP client. Loop included.",
   "license": "MIT",
   "type": "module",
@@ -18,7 +18,6 @@
     "dev": "node build.mjs && node dist/cli.js",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "preview": "node preview.mjs",
     "prepublishOnly": "node check-dist.mjs"
   },
   "dependencies": {},

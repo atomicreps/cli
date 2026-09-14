@@ -1,3 +1,5 @@
+import { chmodSync } from "node:fs";
+
 import { build } from "esbuild";
 
 await build({
@@ -14,3 +16,5 @@ await build({
   sourcemap: false,
   logLevel: "info",
 });
+
+chmodSync("dist/cli.js", 0o755);

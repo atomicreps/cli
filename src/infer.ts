@@ -27,7 +27,7 @@ import {
   MAX_ROOT_HOPS,
   SCAN_SKIP,
 } from "./constants.js";
-import { applyGrammar } from "./touch.js";
+import { applyGrammar, EMPTY_GRAMMAR, knownExtensions, knownPackages } from "./touch.js";
 import type { LocalHints, TouchGrammar } from "./types.js";
 
 function runGit(cwd: string, args: string[], budgetMs: number): Promise<string> {
@@ -261,10 +261,16 @@ export async function inferSession(
       ? []
       : applyGrammar(grammar, { paths: changed, addedLines: addedLines(diff), heads, deadline });
 
+  const vocabulary = grammar ?? EMPTY_GRAMMAR;
+  const named = {
+    packages: knownPackages(vocabulary, [...packages]),
+    extensions: knownExtensions(vocabulary, [...extensions]),
+  };
+
   return {
     hints: {
-      packages: [...packages].slice(0, MAX_PACKAGES_SENT),
-      extensions: [...extensions].slice(0, MAX_EXTENSIONS_SENT),
+      packages: named.packages.slice(0, MAX_PACKAGES_SENT),
+      extensions: named.extensions.slice(0, MAX_EXTENSIONS_SENT),
       touched,
     },
     mark:

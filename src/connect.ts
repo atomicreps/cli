@@ -6,7 +6,7 @@ import { dirname, join } from "node:path";
 import { isAlpha } from "./config.js";
 import { PROBE_MS, TOOL_NAMES } from "./constants.js";
 import { ensureDir, readJsonFile, writeFileAtomic } from "./files.js";
-import { isRecord } from "./types.js";
+import { isRecord, stringList } from "./types.js";
 
 export function serverName(): string {
   return isAlpha() ? "atomicreps-alpha" : "atomicreps";
@@ -76,9 +76,7 @@ export function allowInClaude(): { added: string[]; path: string; skipped?: stri
     typeof settings.permissions === "object" && settings.permissions !== null
       ? (settings.permissions as Record<string, unknown>)
       : {};
-  const allow = Array.isArray(permissions.allow)
-    ? permissions.allow.filter((x): x is string => typeof x === "string")
-    : [];
+  const allow = stringList(permissions.allow);
   const added = toolAllowlist().filter((tool) => !allow.includes(tool));
   if (added.length === 0) return { added, path };
   const next = { ...settings, permissions: { ...permissions, allow: [...allow, ...added] } };

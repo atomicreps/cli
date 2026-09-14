@@ -66,7 +66,7 @@ export const LEVELS: ReadonlyArray<{ level: number; name: string; says: string }
 
 export const WELCOME = [
   "One short question about the thing you just built, while it is still warm. Your agent never writes it. Every question is authored and reviewed long before it reaches you.",
-  "What leaves this machine is a list of topic names, the packages you depend on, and the file extensions and top-level folders you touched. Never your code, never your prompts.",
+  "What leaves this machine is the topic and sub-skill names the question is chosen from, with small weights, and the names of packages, file extensions and folders the public catalog already knows. Anything it does not know stays here, as does every line of your code and every word of your prompts.",
   "AI makes the work faster. How the work feels is part of the evidence too: atomicreps.com/research/the-human-cost",
 ];
 
@@ -105,7 +105,7 @@ async function sentScreen(): Promise<void> {
       title("What gets sent."),
       "",
       ...paragraph(
-        "Everything below is what this repo would put on the wire right now. Shapes are file extensions and top-level folder names.",
+        "Everything below is what this repo would put on the wire right now, and it is only names the catalog already knows. Shapes are file extensions and top-level folder names.",
         COPY_WIDTH,
       ),
       "",
@@ -114,6 +114,9 @@ async function sentScreen(): Promise<void> {
     "",
     ...line("packages", hints.packages.slice(0, 8)),
     ...line("shapes", hints.extensions.slice(0, 10)),
+    ...(hints.packages.length === 0 && hints.extensions.length === 0
+      ? paragraph("    Nothing else here is in the catalog, so nothing else would be sent.")
+      : []),
     "",
     ...paragraph(SENT_NOTE),
   ]);

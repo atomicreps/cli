@@ -25,6 +25,7 @@ import { allMuted } from "./touch.js";
 import {
   asPick,
   type ApiResult,
+  type ClientState,
   type HookInput,
   type HookOutput,
   type OfferEntry,
@@ -32,8 +33,9 @@ import {
   type StoredRep,
   type ToolReply,
 } from "./types.js";
+import { isBehind } from "./version.js";
 
-const LETTER = /^\s*([A-Da-d])(?:[.):]|\s|$)/;
+const LETTER = /^\s*([A-Da-d])([!?])?(?:[.):]|\s|$)/;
 const DIGIT = /^\s*([1-3])(?:[.):]|\s|$)/;
 const OUR_COMMAND = /^\s*\/(?:mcp__atomicreps[\w-]*__rep|atomicreps:rep)(?:\s|$)/;
 
@@ -65,9 +67,13 @@ function parseInput(raw: string): HookInput {
   }
 }
 
-export function letterOf(prompt: string): Pick | null {
+export function letterOf(prompt: string): { pick: Pick; sure?: boolean } | null {
   if (prompt.length > MAX_SHORT_PROMPT_CHARS) return null;
-  return asPick(LETTER.exec(prompt)?.[1]);
+  const match = LETTER.exec(prompt);
+  const pick = asPick(match?.[1]);
+  if (!pick) return null;
+  const suffix = match?.[2];
+  return suffix === undefined ? { pick } : { pick, sure: suffix === "!" };
 }
 
 export function digitOf(prompt: string): number | null {
@@ -111,8 +117,13 @@ export function messageBlock(text: string): string {
   return `\n${lines.join("\n")}`;
 }
 
-async function gradeLetter(pick: Pick, id: string, now: clock.EpochMs): Promise<HookOutput | null> {
-  const result = await api.answer(id, pick);
+async function gradeLetter(
+  pick: Pick,
+  id: string,
+  now: clock.EpochMs,
+  sure?: boolean,
+): Promise<HookOutput | null> {
+  const result = await api.answer(id, pick, sure);
   if (!result.ok) return quiet();
   const data = result.value.data ?? {};
   observeClient(result.value.client, now);
@@ -140,6 +151,17 @@ async function handOver(
   return block === null ? quiet() : context(`${etiquette}\n\n${block}`);
 }
 
+function upgradeLine(client: ClientState | undefined): string {
+  const latest = client?.release?.version;
+  const running = readConfig().bridgeVersion;
+  if (typeof latest !== "string" || typeof running !== "string") return "";
+  if (!isBehind(running, latest)) return "";
+  updateConfig({ bridgeVersion: undefined });
+  const notes = client?.release?.notes;
+  const where = typeof notes === "string" && notes !== "" ? `\n  ${notes}` : "";
+  return `\n\n${tint(`  atomicreps ${running} → ${latest}. Restart your editor to pick it up.${where}`, "dim")}`;
+}
+
 async function fetchRep(cwd: string, now: clock.EpochMs): Promise<HookOutput | null> {
   const { hints, mark } = await inferSession(cwd, INFER_BUDGET_MS, cachedGrammar());
   if (mark !== null && mark === readConfig().lastPushTouch) return null;
@@ -149,7 +171,9 @@ async function fetchRep(cwd: string, now: clock.EpochMs): Promise<HookOutput | n
   const block = servedBlock(result, now);
   if (block === null) return null;
   if (mark !== null) updateConfig({ lastPushTouch: mark });
-  return { systemMessage: messageBlock(block) };
+  return {
+    systemMessage: messageBlock(block) + upgradeLine(result.ok ? result.value.client : undefined),
+  };
 }
 
 export type HookState = {
@@ -162,7 +186,7 @@ export type HookState = {
 export type HookAction =
   | { kind: "ignore" }
   | { kind: "quiet" }
-  | { kind: "grade"; id: string; pick: Pick }
+  | { kind: "grade"; id: string; pick: Pick; sure?: boolean }
   | { kind: "take"; handle: string }
   | { kind: "push"; cwd: string };
 
@@ -185,7 +209,7 @@ export function decide(input: HookInput, state: HookState, now: clock.EpochMs): 
   if (!state.hasToken) return { kind: "quiet" };
 
   const letter = letterOf(prompt);
-  if (letter && state.pending) return { kind: "grade", id: state.pending.id, pick: letter };
+  if (letter && state.pending) return { kind: "grade", id: state.pending.id, ...letter };
 
   const digit = digitOf(prompt);
   const entry = digit === null || state.pending ? undefined : state.offer[digit - 1];
@@ -210,7 +234,7 @@ export async function perform(action: HookAction, now: clock.EpochMs): Promise<H
     case "quiet":
       return quiet();
     case "grade":
-      return await gradeLetter(action.pick, action.id, now);
+      return await gradeLetter(action.pick, action.id, now, action.sure);
     case "take":
       return await handOver(
         await api.rep({ ask: action.handle }, HOOK_DEADLINE_MS),

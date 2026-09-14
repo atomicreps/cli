@@ -86,14 +86,41 @@ export function noteQuiet(reason: string, detail: string | undefined, now: clock
   updateConfig({ lastQuietAt: now, lastQuiet: message.slice(0, MAX_NOTE_CHARS) });
 }
 
+const LOOPBACK = /^http:\/\/(?:localhost|127\.0\.0\.1|\[::1\])(?::\d{1,5})?$/;
+
+function envOrigin(
+  name: string,
+  ours: readonly string[],
+  fallback: string,
+): { origin: string; rejected: string | null } {
+  const override = (process.env[name] ?? "").trim().replace(/\/+$/, "");
+  if (override === "") return { origin: fallback, rejected: null };
+  const allowed =
+    ours.includes(override) || process.env[ENV.unsafeOrigin] === "1" || LOOPBACK.test(override);
+  return allowed ? { origin: override, rejected: null } : { origin: fallback, rejected: override };
+}
+
+const DOORS = [DEFAULT_API, ALPHA_API] as const;
+const SITES = [DEFAULT_SITE, ALPHA_SITE] as const;
+
 export function apiOrigin(): string {
-  const fallback = isAlpha() ? ALPHA_API : DEFAULT_API;
-  return (process.env[ENV.api] || fallback).replace(/\/+$/, "");
+  return envOrigin(ENV.api, DOORS, isAlpha() ? ALPHA_API : DEFAULT_API).origin;
 }
 
 export function siteOrigin(): string {
-  const fallback = isAlpha() ? ALPHA_SITE : DEFAULT_SITE;
-  return (process.env[ENV.site] || fallback).replace(/\/+$/, "");
+  return envOrigin(ENV.site, SITES, isAlpha() ? ALPHA_SITE : DEFAULT_SITE).origin;
+}
+
+export function rejectedOverrides(): Array<{ name: string; value: string }> {
+  const out: Array<{ name: string; value: string }> = [];
+  for (const [name, ours] of [
+    [ENV.api, DOORS],
+    [ENV.site, SITES],
+  ] as const) {
+    const { rejected } = envOrigin(name, ours, "");
+    if (rejected !== null) out.push({ name, value: rejected });
+  }
+  return out;
 }
 
 export function clientLabel(): string {

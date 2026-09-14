@@ -59,6 +59,13 @@ export const MAX_HITS_PER_PHRASE = 3;
 export const MIN_WEIGHT = 1;
 export const MAX_WEIGHT = 10;
 
+export const MAX_VOCABULARY = 4096;
+export const MAX_VOCABULARY_ENTRY = 120;
+export const MAX_PHRASES = 8;
+export const MAX_PHRASE_CHARS = 80;
+export const MAX_TOPIC_CHARS = 200;
+export const PHRASE_WEIGHT = 3;
+
 export const MAX_SHORT_PROMPT_CHARS = 60;
 
 export const DEFAULT_SITE = "https://atomicreps.com";
@@ -88,6 +95,7 @@ export const ENV = {
   channel: "ATOMICREPS_CHANNEL",
   client: "ATOMICREPS_CLIENT",
   pluginHint: "ATOMICREPS_PLUGIN_HINT",
+  unsafeOrigin: "ATOMICREPS_UNSAFE_ORIGIN",
 } as const;
 
 export const MODERN_VERSION = "2026-07-28";
