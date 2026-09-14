@@ -1,12 +1,27 @@
 import { ESC, MAX_LINE } from "./constants.js";
 import type { Tone } from "./types.js";
 
-const CODES: Record<Tone, string> = {
+export type Theme = "dark" | "light";
+
+type ThemedTone = "ink" | "soft" | "faint" | "coral" | "gold";
+
+const DARK: Record<ThemedTone, string> = {
   ink: "38;5;231",
   soft: "38;5;250",
   faint: "38;5;244",
   coral: "38;5;209",
   gold: "38;5;221",
+};
+
+const LIGHT: Record<ThemedTone, string> = {
+  ink: "38;5;235",
+  soft: "38;5;240",
+  faint: "38;5;247",
+  coral: "38;5;166",
+  gold: "38;5;136",
+};
+
+const STATIC_CODES: Omit<Record<Tone, string>, ThemedTone> = {
   green: "38;5;114",
   red: "38;5;203",
   body: "38;5;218",
@@ -16,6 +31,24 @@ const CODES: Record<Tone, string> = {
   bold: "1",
   dim: "2",
 };
+
+function codesFor(theme: Theme): Record<Tone, string> {
+  return { ...STATIC_CODES, ...(theme === "light" ? LIGHT : DARK) };
+}
+
+export function themeFromEnv(): Theme {
+  const raw = process.env.COLORFGBG;
+  if (raw === undefined) return "dark";
+  const parts = raw.split(";");
+  const bg = parts[parts.length - 1];
+  return bg === "7" || bg === "15" ? "light" : "dark";
+}
+
+let currentTheme: Theme = themeFromEnv();
+
+export function setTheme(theme: Theme): void {
+  currentTheme = theme;
+}
 
 function colourAllowed(): boolean {
   if (process.env.NO_COLOR !== undefined) return false;
@@ -28,7 +61,8 @@ export const COLOUR = colourAllowed();
 
 export function paint(text: string, ...tones: Tone[]): string {
   if (!COLOUR || tones.length === 0) return text;
-  const open = tones.map((t) => `[${CODES[t]}m`).join("");
+  const codes = codesFor(currentTheme);
+  const open = tones.map((t) => `[${codes[t]}m`).join("");
   return `${open}${text}[0m`;
 }
 
@@ -86,8 +120,10 @@ export function wrap(text: string, width: number): string[] {
 }
 
 export function tint(text: string, ...tones: Tone[]): string {
+  if (text === "") return text;
   if (process.env.NO_COLOR !== undefined || process.env.TERM === "dumb") return text;
   if (tones.length === 0) return text;
-  const open = tones.map((t) => `${ESC}[${CODES[t]}m`).join("");
+  const codes = codesFor(currentTheme);
+  const open = tones.map((t) => `${ESC}[${codes[t]}m`).join("");
   return `${open}${text}${ESC}[0m`;
 }

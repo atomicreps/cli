@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.0.7
+
+- The rep your agent prints after a turn is readable again. Claude Code prints a hook's message in its own grey, and the block only coloured its header, so the question and the answers came out in that grey. Every line now sets its own colour: the question and the answers in full contrast, the letters and the header in coral, code in its own tone, inline code in gold with the backticks gone.
+- A light terminal gets dark ink. The hook reads the theme Claude Code is set to; `npx atomicreps` reads the terminal's own hint. Before, the palette assumed a dark background everywhere.
+- Code samples on the `npx atomicreps` screen keep their indentation. They were word-wrapped like prose, which dropped every leading space. Long answers wrap under their letter.
+- A block too long for Claude Code to print in colour prints plain instead. The host caps a hook's message at 10,000 characters and swaps anything longer for a file path.
+
 ## 0.0.6
 
 - A pushed rep no longer re-asks something from another day's work. The re-ask lane ran ahead of the pick with the session's touched set as a tie-break only, so a TypeScript miss from July could come back after an afternoon of SQL, with no line saying why. Now a pushed rep re-asks only a lane inside what the session touched; the rest wait for a session that fits. Asking for a rep with nothing named still serves whatever is pending, which is where those go. Server-side; nothing to upgrade for this one.

@@ -5,16 +5,32 @@ export const REP_FOOTER_TAP =
   "_From memory. Reply with a letter; add ! if you are sure, ? if you are not._";
 
 export function plainBlock(text: string): string[] {
-  return text
-    .split("\n")
-    .filter((line) => line !== REP_RULE && line !== REP_FOOTER && line !== REP_FOOTER_TAP)
-    .map((line) =>
-      line
-        .replace(/^```\w+$/, "```")
-        .replace(/^⚛ \*\*(.*)\*\*$/, "$1")
-        .replace(/\*\*(.+?)\*\*/g, "$1")
-        .replace(/^_(.+)_$/, "$1"),
-    );
+  const out: string[] = [];
+  for (const token of tokenizeBlock(text)) {
+    switch (token.kind) {
+      case "rule":
+      case "footer":
+        continue;
+      case "blank":
+        out.push("");
+        continue;
+      case "fence":
+        out.push("```");
+        continue;
+      case "code":
+      case "header":
+      case "note":
+        out.push(token.text);
+        continue;
+      case "option":
+        out.push(`${token.letter}. ${plainSpans(token.text)}`);
+        continue;
+      case "text":
+        out.push(plainSpans(token.text));
+        continue;
+    }
+  }
+  return out;
 }
 
 export const FALLBACK_INSTRUCTIONS = [
@@ -28,6 +44,91 @@ export const FALLBACK_INSTRUCTIONS = [
 export const MAX_BLOCK_BYTES = 8 * 1024;
 
 const BLOCK_HEADER = `${REP_MARK} **Atomic Reps · `;
+
+const FENCE_LINE = /^```/;
+const HEADER_LINE = /^⚛ \*\*(.*)\*\*$/;
+const OPTION_ROW = /^([A-D])\.\s+(.*)$/;
+const NOTE_LINE = /^_(.+)_$/;
+const SPAN = /\*\*(.+?)\*\*|`([^`]+)`/g;
+
+export type Span = { kind: "text" | "bold" | "code"; text: string };
+
+export type BlockToken =
+  | { kind: "header"; text: string }
+  | { kind: "rule" }
+  | { kind: "blank" }
+  | { kind: "fence" }
+  | { kind: "code"; text: string }
+  | { kind: "option"; letter: string; text: string }
+  | { kind: "note"; text: string }
+  | { kind: "footer"; text: string }
+  | { kind: "text"; text: string };
+
+export function tokenizeBlock(text: string): BlockToken[] {
+  const tokens: BlockToken[] = [];
+  let inCode = false;
+  for (const line of text.split("\n")) {
+    if (FENCE_LINE.test(line)) {
+      inCode = !inCode;
+      tokens.push({ kind: "fence" });
+      continue;
+    }
+    if (inCode) {
+      tokens.push({ kind: "code", text: line });
+      continue;
+    }
+    if (line === "") {
+      tokens.push({ kind: "blank" });
+      continue;
+    }
+    if (line === REP_RULE) {
+      tokens.push({ kind: "rule" });
+      continue;
+    }
+    if (line === REP_FOOTER || line === REP_FOOTER_TAP) {
+      tokens.push({ kind: "footer", text: line.slice(1, -1) });
+      continue;
+    }
+    const header = HEADER_LINE.exec(line);
+    if (header?.[1] !== undefined) {
+      tokens.push({ kind: "header", text: header[1] });
+      continue;
+    }
+    const option = OPTION_ROW.exec(line);
+    if (option?.[1] !== undefined && option[2] !== undefined) {
+      tokens.push({ kind: "option", letter: option[1], text: option[2] });
+      continue;
+    }
+    const note = NOTE_LINE.exec(line);
+    if (note?.[1] !== undefined) {
+      tokens.push({ kind: "note", text: note[1] });
+      continue;
+    }
+    tokens.push({ kind: "text", text: line });
+  }
+  return tokens;
+}
+
+export function spans(text: string): Span[] {
+  const out: Span[] = [];
+  let last = 0;
+  for (const match of text.matchAll(SPAN)) {
+    if (match.index > last) out.push({ kind: "text", text: text.slice(last, match.index) });
+    if (match[1] !== undefined) out.push({ kind: "bold", text: match[1] });
+    else if (match[2] !== undefined) out.push({ kind: "code", text: match[2] });
+    last = match.index + match[0].length;
+  }
+  if (last < text.length) out.push({ kind: "text", text: text.slice(last) });
+  return out;
+}
+
+function plainSpans(text: string): string {
+  return spans(text)
+    .map((span) =>
+      span.kind === "bold" ? span.text : span.kind === "code" ? `\`${span.text}\`` : span.text,
+    )
+    .join("");
+}
 
 export function isRepBlock(text: unknown): text is string {
   if (typeof text !== "string" || text.length > MAX_BLOCK_BYTES) return false;

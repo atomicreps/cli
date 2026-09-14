@@ -1,5 +1,6 @@
-import { paint, wrap } from "./ansi.js";
+import { paint, stripAnsi } from "./ansi.js";
 import * as api from "./api.js";
+import { paintBlock } from "./block.js";
 import * as clock from "./clock.js";
 import {
   apiOrigin,
@@ -32,7 +33,6 @@ import {
   TOUCHED_SHOWN,
   TUI_INFER_BUDGET_MS,
 } from "./constants.js";
-import { plainBlock } from "./format.js";
 import { inferHints } from "./infer.js";
 import { CADENCES, draftOf, gateScreen, install, levelsScreen, scopeScreen } from "./install.js";
 import { pickMany, pickOne } from "./pick.js";
@@ -203,7 +203,7 @@ async function repScreen(ask?: string): Promise<void> {
     await pause();
     return;
   }
-  const body = plainBlock(served.text).flatMap((line) => wrap(line, TEXT_WIDTH));
+  const body = paintBlock(served.text, paint, { chrome: false, width: TEXT_WIDTH });
   out([
     ...withLoop("thinking", [title("One rep. From memory."), "", ...body.slice(0, 3)]),
     ...body.slice(3),
@@ -226,9 +226,9 @@ async function repScreen(ask?: string): Promise<void> {
   const offer: OfferEntry[] = offerOf(verdict);
   const correct = verdict.correct === true;
   const graded = verdict.status === "answered";
-  const lines = plainBlock(answered.text)
-    .filter((line) => !line.startsWith("Also touched:"))
-    .flatMap((line) => wrap(line, TEXT_WIDTH));
+  const lines = paintBlock(answered.text, paint, { chrome: false, width: TEXT_WIDTH }).filter(
+    (line) => !stripAnsi(line).startsWith("Also touched:"),
+  );
   out([
     ...withLoop(correct ? "celebrating" : graded ? "facepalm" : "idle", [
       title(correct ? "Yes." : graded ? "Not this time." : "Hm."),
@@ -280,8 +280,8 @@ async function sessionScreen(): Promise<void> {
 async function skillsScreen(): Promise<void> {
   const skills = await fetched(await api.me("skills", LOGIN_DEADLINE_MS));
   if (!skills) return;
-  const lines = plainBlock(skills.text).flatMap((line) => wrap(line, TEXT_WIDTH));
-  out([...withLoop("impressed", [title(lines[0] ?? "Skills"), ""]), ...lines.slice(1)]);
+  const lines = paintBlock(skills.text, paint, { chrome: false, width: TEXT_WIDTH });
+  out([...withLoop("impressed", [lines[0] ?? title("Skills"), ""]), ...lines.slice(1)]);
   await pause();
 }
 

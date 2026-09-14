@@ -5,20 +5,27 @@ import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { stripAnsi } from "../src/ansi.js";
 import type { HookOutput } from "../src/types.js";
 
+const ESC = String.fromCharCode(27);
+
 let configHome: string;
+let claudeHome: string;
 
 beforeEach(() => {
   configHome = mkdtempSync(join(tmpdir(), "atomicreps-"));
   process.env.XDG_CONFIG_HOME = configHome;
   process.env.ATOMICREPS_API = "https://example.invalid";
+  claudeHome = mkdtempSync(join(tmpdir(), "atomicreps-claude-"));
+  process.env.CLAUDE_CONFIG_DIR = claudeHome;
   vi.resetModules();
 });
 
 afterEach(() => {
   vi.unstubAllGlobals();
   delete process.env.ATOMICREPS_API;
+  delete process.env.CLAUDE_CONFIG_DIR;
 });
 
 const BLOCK =
@@ -39,7 +46,7 @@ function contextOf(out: HookOutput | null): string | undefined {
 }
 
 function messageOf(out: HookOutput | null): string | undefined {
-  return out !== null && "systemMessage" in out ? out.systemMessage : undefined;
+  return out !== null && "systemMessage" in out ? stripAnsi(out.systemMessage) : undefined;
 }
 
 function repDoor(release: { version: string; notes: string }) {
@@ -559,8 +566,6 @@ describe("the working tree in eight characters", () => {
 describe("the block as the terminal prints it", () => {
   it("keeps the words, drops the markers and the fence, and paints the chrome", async () => {
     const { messageBlock } = await import("../src/hook.js");
-    const { stripAnsi } = await import("../src/ansi.js");
-    const ESC = String.fromCharCode(27);
     const block = [
       "\u269b **Atomic Reps \u00b7 Docker**",
       "\u2500".repeat(26),
@@ -584,13 +589,28 @@ describe("the block as the terminal prints it", () => {
     expect(plain).not.toContain("```");
     expect(plain).not.toContain("_From memory");
     expect(plain).toContain("\u269b Atomic Reps \u00b7 Docker");
-    expect(plain).toContain("What does `--no-cache` do on build?");
+    expect(plain, "inline code loses its backticks").toContain("What does --no-cache do on build?");
     expect(plain).toContain("  RUN apk add curl");
     expect(plain).toContain("From memory. Reply with a letter.");
     expect(plain.startsWith("\n"), "the host's label gets a line of its own").toBe(true);
     delete process.env.NO_COLOR;
     process.env.TERM = "xterm-256color";
-    expect(messageBlock(block), "colour when nothing refuses it").toContain(`${ESC}[1m`);
+    const painted = messageBlock(block);
+    expect(painted, "colour when nothing refuses it").toContain(`${ESC}[1m`);
+    const INK = `${ESC}[38;5;231m`;
+    const CORAL = `${ESC}[38;5;209m`;
+    const GOLD = `${ESC}[38;5;221m`;
+    const SOFT = `${ESC}[38;5;250m`;
+    expect(painted, "the question is ink, never the host's grey").toContain(`${INK}What does `);
+    expect(painted, "inline code is gold").toContain(`${GOLD}--no-cache${ESC}[0m`);
+    expect(painted, "bold inside the question keeps ink").toContain(`${INK}${ESC}[1mbuild${ESC}[0m`);
+    expect(painted, "an answer's letter is coral, its text ink").toContain(
+      `${ESC}[1m${CORAL}A.${ESC}[0m ${INK}One${ESC}[0m`,
+    );
+    expect(painted, "code is soft").toContain(`  ${SOFT}RUN apk add curl${ESC}[0m`);
+    expect(painted, "the key hint is soft, not dim").toContain(`${SOFT}From memory.`);
+    expect(painted, "nothing is dimmed").not.toContain(`${ESC}[2m`);
+    expect(painted, "a blank line stays blank").toContain("\n\n");
     process.env.NO_COLOR = "1";
     expect(messageBlock(block), "none when the person refused it").not.toContain(ESC);
     delete process.env.NO_COLOR;
@@ -606,5 +626,52 @@ describe("the block as the terminal prints it", () => {
     );
     expect(messageOf(await hook.runHook(stopIn())) ?? "").not.toContain("Restart your editor");
     delete process.env.NO_COLOR;
+  });
+});
+
+describe("the host's own 10,000-character cap", () => {
+  it("prints the same shape uncoloured rather than let the host swap in a preview", async () => {
+    const { hook } = await load();
+    delete process.env.NO_COLOR;
+    process.env.TERM = "xterm-256color";
+    const denseOption = Array.from({ length: 700 }, () => "**b** `c`").join(" ");
+    const block = [
+      "⚛ **Atomic Reps · TypeScript**",
+      "──────────────────────────",
+      "What is a union type?",
+      "",
+      `A. ${denseOption}`,
+      "B. B",
+      "",
+      "_From memory. Reply with a letter._",
+      "──────────────────────────",
+    ].join("\n");
+    expect(block.length).toBeLessThan(8 * 1024);
+    const painted = hook.messageBlock(block);
+    expect(painted.length).toBeGreaterThan(10_000);
+    const capped = hook.hostSystemMessage(block, "");
+    expect(capped.length).toBeLessThanOrEqual(10_000);
+    expect(capped).not.toContain(ESC);
+    expect(stripAnsi(capped)).toContain("What is a union type?");
+    delete process.env.TERM;
+  });
+});
+
+describe("the theme Claude Code says the terminal has", () => {
+  it("reads settings.json under CLAUDE_CONFIG_DIR", async () => {
+    const { hook } = await load();
+    writeFileSync(join(claudeHome, "settings.json"), JSON.stringify({ theme: "light" }));
+    expect(hook.claudeTheme()).toBe("light");
+  });
+
+  it("treats auto, and anything else that is not light, as dark", async () => {
+    const { hook } = await load();
+    writeFileSync(join(claudeHome, "settings.json"), JSON.stringify({ theme: "auto" }));
+    expect(hook.claudeTheme()).toBe("dark");
+  });
+
+  it("is dark when the settings file is missing entirely", async () => {
+    const { hook } = await load();
+    expect(hook.claudeTheme()).toBe("dark");
   });
 });

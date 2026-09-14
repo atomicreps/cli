@@ -1,14 +1,20 @@
-import { tint } from "./ansi.js";
+import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+
+import { setTheme, tint, type Theme } from "./ansi.js";
 import * as api from "./api.js";
+import { paintBlock } from "./block.js";
 import * as clock from "./clock.js";
 import { readConfig, updateConfig } from "./config.js";
+import { claudeSettingsPath } from "./connect.js";
 import {
   DEGRADED_BACKOFF_MS,
   HOOK_DEADLINE_MS,
   INFER_BUDGET_MS,
   MAX_SHORT_PROMPT_CHARS,
 } from "./constants.js";
-import { isRepBlock, REP_FOOTER, REP_FOOTER_TAP, REP_MARK, REP_RULE } from "./format.js";
+import { isRepBlock } from "./format.js";
 import { inferSession } from "./infer.js";
 import {
   cachedGrammar,
@@ -87,34 +93,32 @@ export function endsOnQuestion(text: string | undefined): boolean {
   return /\?[\s*_\u0060~\u0022\u0027)\]]*$/.test(text);
 }
 
-export function messageBlock(text: string): string {
-  const lines: string[] = [];
-  let inCode = false;
-  for (const line of text.split("\n")) {
-    if (line.startsWith("```")) {
-      inCode = !inCode;
-      continue;
-    }
-    if (inCode) {
-      lines.push(`  ${line}`);
-      continue;
-    }
-    if (line === REP_RULE) {
-      lines.push(tint(line, "faint"));
-      continue;
-    }
-    const header = /^⚛ \*\*(.*)\*\*$/.exec(line);
-    if (header?.[1] !== undefined) {
-      lines.push(`${REP_MARK} ${tint(header[1], "bold", "coral")}`);
-      continue;
-    }
-    if (line === REP_FOOTER || line === REP_FOOTER_TAP || /^_(.+)_$/.test(line)) {
-      lines.push(tint(line.replace(/^_(.+)_$/, "$1"), "dim"));
-      continue;
-    }
-    lines.push(line.replace(/\*\*(.+?)\*\*/g, (_, inner: string) => tint(inner, "bold")));
+function themeStringFrom(path: string): string | undefined {
+  try {
+    const parsed = JSON.parse(readFileSync(path, "utf8")) as { theme?: unknown };
+    return typeof parsed.theme === "string" ? parsed.theme : undefined;
+  } catch {
+    return undefined;
   }
-  return `\n${lines.join("\n")}`;
+}
+
+export function claudeTheme(): Theme {
+  const raw =
+    themeStringFrom(claudeSettingsPath()) ?? themeStringFrom(join(homedir(), ".claude.json"));
+  return raw?.startsWith("light") === true ? "light" : "dark";
+}
+
+export function messageBlock(text: string): string {
+  setTheme(claudeTheme());
+  return `\n${paintBlock(text, tint, { chrome: true }).join("\n")}`;
+}
+
+const HOST_MESSAGE_CAP = 10_000;
+
+export function hostSystemMessage(block: string, upgrade: string): string {
+  const painted = messageBlock(block) + upgrade;
+  if (painted.length <= HOST_MESSAGE_CAP) return painted;
+  return `\n${paintBlock(block, (line) => line, { chrome: true }).join("\n")}${upgrade}`;
 }
 
 async function gradeLetter(
@@ -172,7 +176,10 @@ async function fetchRep(cwd: string, now: clock.EpochMs): Promise<HookOutput | n
   if (block === null) return null;
   if (mark !== null) updateConfig({ lastPushTouch: mark });
   return {
-    systemMessage: messageBlock(block) + upgradeLine(result.ok ? result.value.client : undefined),
+    systemMessage: hostSystemMessage(
+      block,
+      upgradeLine(result.ok ? result.value.client : undefined),
+    ),
   };
 }
 
