@@ -84,3 +84,10 @@ export function wrap(text: string, width: number): string[] {
   }
   return out;
 }
+
+export function tint(text: string, ...tones: Tone[]): string {
+  if (process.env.NO_COLOR !== undefined || process.env.TERM === "dumb") return text;
+  if (tones.length === 0) return text;
+  const open = tones.map((t) => `${ESC}[${CODES[t]}m`).join("");
+  return `${open}${text}${ESC}[0m`;
+}

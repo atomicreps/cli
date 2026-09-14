@@ -2,7 +2,14 @@
 
 ## 0.0.3
 
-Two themes: the door stops changing your pace behind your back, and it stops failing silently.
+Three themes: a rep arrives when your turn is actually over, the door stops changing your pace behind your back, and it stops failing silently.
+
+### When a rep arrives
+
+- In Claude Code, the `Stop` hook prints the rep when Claude's turn ends, instead of handing it to Claude to append after its answer. Claude never sees it, spends no tokens on it, and cannot forget to relay it.
+- No rep while Claude is asking you something. A turn that ends on a question is not finished; the answer is your next message.
+- No rep until something has changed in your working tree since the last one. A turn that only read files and gave an opinion has nothing to ask about.
+- No rep about something else. When nothing you touched has a fresh question, the door stays quiet for your gap instead of asking about a topic from your path. Asking for one by number still draws from your path and says so.
 
 ### Pace
 

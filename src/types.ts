@@ -107,6 +107,7 @@ export type Config = {
   lastQuiet?: string;
   dialog?: boolean;
   setupAt?: EpochMs;
+  lastPushTouch?: string;
 };
 
 export type OfferEntry = { handle: string; name: string };
@@ -143,11 +144,16 @@ export type TouchInput = {
 
 export type LocalHints = { packages: string[]; extensions: string[]; touched: TouchedEntry[] };
 
-export type HookInput = { hook_event_name?: string; prompt?: string; cwd?: string };
-
-export type HookOutput = {
-  hookSpecificOutput: { hookEventName: "UserPromptSubmit"; additionalContext: string };
+export type HookInput = {
+  hook_event_name?: string;
+  prompt?: string;
+  cwd?: string;
+  last_assistant_message?: string;
 };
+
+export type HookOutput =
+  | { hookSpecificOutput: { hookEventName: "UserPromptSubmit"; additionalContext: string } }
+  | { systemMessage: string };
 
 export type Draft = {
   prefer: string[];

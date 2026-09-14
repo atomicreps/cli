@@ -13,7 +13,7 @@ export const MAX_LOCAL_QUIET_MS = 60 * 60_000;
 export const TOPICS_TTL_MS = 24 * 60 * 60_000;
 export const GRAMMAR_TTL_MS = 30 * 24 * 60 * 60_000;
 export const STATUS_TTL_MS = 24 * 60 * 60_000;
-export const PENDING_TTL_MS = 30 * 60_000;
+export const PENDING_TTL_MS = 4 * 60 * 60_000;
 export const OFFER_TTL_MS = 30 * 60_000;
 export const REPS_KEPT = 20;
 
@@ -32,6 +32,23 @@ export const MAX_MANIFEST_DEPS = 60;
 export const MAX_PACKAGES_SENT = 64;
 export const MAX_EXTENSIONS_SENT = 32;
 export const MAX_ROOT_HOPS = 64;
+
+export const MAX_SCAN_DEPTH = 4;
+export const MAX_SCAN_FILES = 1500;
+
+export const SCAN_SKIP: ReadonlySet<string> = new Set([
+  "node_modules",
+  "dist",
+  "build",
+  "out",
+  "target",
+  "vendor",
+  "venv",
+  "coverage",
+  "__pycache__",
+  "Pods",
+  "DerivedData",
+]);
 
 export const TOUCHED_SENT = 12;
 export const MAX_ADDED_LINES = 400;

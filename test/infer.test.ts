@@ -4,7 +4,8 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { inferHints } from "../src/infer.js";
+import { MAX_SCAN_FILES } from "../src/constants.js";
+import { inferHints, inferSession } from "../src/infer.js";
 
 describe("inferHints", () => {
   it("returns inside the budget even when git hangs", async () => {
@@ -98,6 +99,7 @@ describe("git paths that need quoting", () => {
 
   it("keeps quote characters out of the payload", async () => {
     const dir = mkdtempSync(join(tmpdir(), "atomicreps-quoted-"));
+    mkdirSync(join(dir, ".git"), { recursive: true });
     stubGit(dir);
     const previousPath = process.env.PATH;
     process.env.PATH = `${join(dir, "bin")}:${previousPath}`;
@@ -175,5 +177,40 @@ describe("running from a subdirectory of the repo", () => {
     } finally {
       process.env.PATH = previousPath;
     }
+  });
+});
+
+describe("a folder that is not a repository", () => {
+  function coursework(): string {
+    const dir = mkdtempSync(join(tmpdir(), "atomicreps-class-"));
+    writeFileSync(join(dir, "linked_list.py"), "class Node:\n    pass\n");
+    writeFileSync(join(dir, "README.md"), "assignment 2\n");
+    mkdirSync(join(dir, "__pycache__"));
+    writeFileSync(join(dir, "__pycache__", "junk.pyc"), "x");
+    return dir;
+  }
+
+  it("still sees what a student is working on, and skips the toolchain's leavings", async () => {
+    const session = await inferSession(coursework(), 200);
+    expect(session.hints.extensions).toContain("py");
+    expect(session.hints.extensions).not.toContain("pyc");
+    expect(session.mark, "a folder it could read is a folder it can mark").not.toBeNull();
+  });
+
+  it("marks the same folder the same way, and differently once a file moves", async () => {
+    const dir = coursework();
+    const first = await inferSession(dir, 200);
+    expect((await inferSession(dir, 200)).mark).toBe(first.mark);
+
+    writeFileSync(join(dir, "linked_list.py"), "class Node:\n    def pop(self): pass\n");
+    expect((await inferSession(dir, 200)).mark).not.toBe(first.mark);
+  });
+
+  it("refuses rather than half-reads a folder past its limit", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "atomicreps-big-"));
+    for (let i = 0; i < MAX_SCAN_FILES + 100; i += 1) {
+      writeFileSync(join(dir, `f${String(i)}.txt`), "x");
+    }
+    expect((await inferSession(dir, 500)).mark).toBeNull();
   });
 });

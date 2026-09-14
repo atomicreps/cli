@@ -1,8 +1,11 @@
-import { mkdtempSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import type { HookOutput } from "../src/types.js";
 
 let configHome: string;
 
@@ -25,6 +28,20 @@ function input(prompt: string): string {
   return JSON.stringify({ hook_event_name: "UserPromptSubmit", prompt, cwd: configHome });
 }
 
+function stopIn(last = "Done.", cwd = configHome): string {
+  return JSON.stringify({ hook_event_name: "Stop", last_assistant_message: last, cwd });
+}
+
+function contextOf(out: HookOutput | null): string | undefined {
+  return out !== null && "hookSpecificOutput" in out
+    ? out.hookSpecificOutput.additionalContext
+    : undefined;
+}
+
+function messageOf(out: HookOutput | null): string | undefined {
+  return out !== null && "systemMessage" in out ? out.systemMessage : undefined;
+}
+
 async function load() {
   const hook = await import("../src/hook.js");
   const config = await import("../src/config.js");
@@ -33,17 +50,36 @@ async function load() {
 }
 
 describe("atomicreps hook", () => {
-  it("hands over only the quiet line and opens no socket while the quiet clock runs", async () => {
+  it("prints nothing and opens no socket while the quiet clock runs", async () => {
     const { hook, config } = await load();
     config.writeConfig({ token: "arep_test", nextEligibleAt: Date.now() + 60_000 });
     const fetchSpy = vi.fn();
     vi.stubGlobal("fetch", fetchSpy);
     const started = Date.now();
-    const out = await hook.runHook(input("refactor the auth module"));
-    expect(out?.hookSpecificOutput.additionalContext).toBe(hook.QUIET_CONTEXT);
-    expect(hook.QUIET_CONTEXT).not.toContain("⚛");
+    expect(await hook.runHook(stopIn())).toBeNull();
     expect(fetchSpy).not.toHaveBeenCalled();
     expect(Date.now() - started).toBeLessThan(50);
+  });
+
+  it("a prompt gets the quiet line and never pushes, whatever the clock says", async () => {
+    const { hook, config } = await load();
+    config.writeConfig({ token: "arep_test" });
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+    const out = await hook.runHook(input("refactor the auth module"));
+    expect(contextOf(out)).toBe(hook.QUIET_CONTEXT);
+    expect(hook.QUIET_CONTEXT).not.toContain("⚛");
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("prints nothing when the agent ended its turn on a question", async () => {
+    const { hook, config } = await load();
+    config.writeConfig({ token: "arep_test" });
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+    expect(await hook.runHook(stopIn("Shall I apply the same to the other routes?"))).toBeNull();
+    expect(await hook.runHook(stopIn("Want me to **push it**?"))).toBeNull();
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 
   it("refuses a payload that is not a rep block, however well-formed the envelope", async () => {
@@ -73,14 +109,11 @@ describe("atomicreps hook", () => {
           ),
       ),
     );
-    const out = await hook.runHook(input("done with the form"));
-    const context = out?.hookSpecificOutput.additionalContext ?? "";
-    expect(context).not.toContain("id_rsa");
-    expect(context).not.toContain(injected);
-    expect(context).toBe(hook.QUIET_CONTEXT);
+    const out = await hook.runHook(stopIn());
+    expect(out).toBeNull();
   });
 
-  it("hands an eligible rep over as context with the etiquette, and records it pending", async () => {
+  it("prints an eligible rep to the person at the end of the turn, and records it pending", async () => {
     const { hook, config, store } = await load();
     config.writeConfig({ token: "arep_test" });
     vi.stubGlobal(
@@ -106,10 +139,12 @@ describe("atomicreps hook", () => {
         );
       }),
     );
-    const out = await hook.runHook(input("done with the form"));
-    expect(out?.hookSpecificOutput.hookEventName).toBe("UserPromptSubmit");
-    expect(out?.hookSpecificOutput.additionalContext).toContain(hook.REP_ETIQUETTE);
-    expect(out?.hookSpecificOutput.additionalContext).toContain(BLOCK);
+    const out = await hook.runHook(stopIn());
+    const message = messageOf(out) ?? "";
+    expect(message).toContain("Atomic Reps · React");
+    expect(message).toContain("Which hook?");
+    expect(message).toContain("B. useRef");
+    expect(contextOf(out)).toBeUndefined();
     expect(store.pendingRep()?.id).toBe("q1");
     expect((config.readConfig().nextEligibleAt ?? 0) > Date.now()).toBe(true);
   });
@@ -146,12 +181,12 @@ describe("atomicreps hook", () => {
     vi.stubGlobal("fetch", answerSpy);
     const out = await hook.runHook(input("b"));
     expect(answerSpy).toHaveBeenCalledTimes(1);
-    expect(out?.hookSpecificOutput.additionalContext).toContain(hook.VERDICT_ETIQUETTE);
-    expect(out?.hookSpecificOutput.additionalContext).toContain("**Correct** · useRef");
+    expect(contextOf(out)).toContain(hook.VERDICT_ETIQUETTE);
+    expect(contextOf(out)).toContain("**Correct** · useRef");
     expect(store.pendingRep()).toBeUndefined();
 
     const again = await hook.runHook(input("b"));
-    expect(again?.hookSpecificOutput.additionalContext).toBe(hook.QUIET_CONTEXT);
+    expect(contextOf(again)).toBe(hook.QUIET_CONTEXT);
     expect(answerSpy).toHaveBeenCalledTimes(1);
     expect(store.openOffer()).toEqual([{ handle: "css.grid", name: "CSS · Grid" }]);
   });
@@ -202,7 +237,7 @@ describe("atomicreps hook", () => {
     vi.stubGlobal("fetch", askSpy);
     const out = await hook.runHook(input("2"));
     expect(askSpy).toHaveBeenCalledTimes(1);
-    expect(out?.hookSpecificOutput.additionalContext).toContain(hook.ASKED_ETIQUETTE);
+    expect(contextOf(out)).toContain(hook.ASKED_ETIQUETTE);
     expect(store.pendingRep()?.id).toBe("q2");
     store.observeVerdict(
       "q2",
@@ -211,13 +246,13 @@ describe("atomicreps hook", () => {
       Date.now(),
     );
     const none = await hook.runHook(input("2"));
-    expect(none?.hookSpecificOutput.additionalContext).toBe(hook.QUIET_CONTEXT);
+    expect(contextOf(none)).toBe(hook.QUIET_CONTEXT);
     expect(askSpy).toHaveBeenCalledTimes(1);
   });
 
   it("opens no socket when everything the session touched is muted", async () => {
     const { hook, config, store } = await load();
-    const { writeFileSync, mkdirSync } = await import("node:fs");
+    const { mkdirSync } = await import("node:fs");
     const { join: joinPath } = await import("node:path");
     config.writeConfig({ token: "arep_test" });
     store.writeStatusCache({ muteKeys: ["docker"] });
@@ -239,8 +274,7 @@ describe("atomicreps hook", () => {
     writeFileSync(joinPath(configHome, "Dockerfile"), "FROM node:20\n");
     const fetchSpy = vi.fn();
     vi.stubGlobal("fetch", fetchSpy);
-    const out = await hook.runHook(input("ship the container"));
-    expect(out?.hookSpecificOutput.additionalContext).toBe(hook.QUIET_CONTEXT);
+    expect(await hook.runHook(stopIn())).toBeNull();
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
@@ -262,7 +296,7 @@ describe("atomicreps hook", () => {
         );
       }),
     );
-    await hook.runHook(input("ship it"));
+    await hook.runHook(stopIn());
     expect(calls).toEqual(["/mcp/rep"]);
     expect(store.cachedMuteKeys()).toEqual(["docker", "css.grid"]);
     expect(store.cachedGrammarVersion()).toBe("beef");
@@ -286,7 +320,7 @@ describe("atomicreps hook", () => {
     expect(statusline.statusLine(tomorrow)).not.toContain("streak");
   });
 
-  it("a dead wire is the quiet line and backs the clock off", async () => {
+  it("a dead wire prints nothing and backs the clock off", async () => {
     const { hook, config } = await load();
     config.writeConfig({ token: "arep_test" });
     vi.stubGlobal(
@@ -295,8 +329,7 @@ describe("atomicreps hook", () => {
         throw new Error("ECONNREFUSED");
       }),
     );
-    const out = await hook.runHook(input("ship it"));
-    expect(out?.hookSpecificOutput.additionalContext).toBe(hook.QUIET_CONTEXT);
+    expect(await hook.runHook(stopIn())).toBeNull();
     expect((config.readConfig().nextEligibleAt ?? 0) > Date.now()).toBe(true);
   });
 });
@@ -311,5 +344,164 @@ describe("the cached clock never outlives the door", () => {
     expect(locallyQuiet(now + MAX_LOCAL_QUIET_MS + 1, now), "past it, go and ask").toBe(false);
     expect(locallyQuiet(now - 1, now), "already past").toBe(false);
     expect(locallyQuiet(now + 13 * 60 * 60_000, now)).toBe(false);
+  });
+});
+
+describe("a letter typed later is still an answer", () => {
+  it("holds a rep pending across a long turn, and still lets go by the next day", async () => {
+    const { PENDING_TTL_MS } = await import("../src/constants.js");
+    const MINUTE = 60_000;
+    expect(PENDING_TTL_MS, "a 36-minute turn must not lose an answer").toBeGreaterThan(36 * MINUTE);
+    expect(PENDING_TTL_MS, "but a letter tomorrow is not this rep's").toBeLessThan(
+      12 * 60 * MINUTE,
+    );
+  });
+});
+
+const REP_MARK_CHAR = String.fromCodePoint(0x269b);
+
+describe("a pushed rep needs something to have been built", () => {
+  function doorWithARep() {
+    return vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            text: BLOCK,
+            data: {
+              kind: "question",
+              id: "q1",
+              topicSlug: "react",
+              topicSource: "touched",
+              nextEligibleAt: Date.now() - 1,
+              lane: "pushed",
+              offer: [],
+            },
+          }),
+          { headers: { "content-type": "application/json" } },
+        ),
+    );
+  }
+
+  function repo(contents: string): string {
+    const dir = mkdtempSync(join(tmpdir(), "atomicreps-repo-"));
+    execFileSync("git", ["init", "-q"], { cwd: dir });
+    writeFileSync(join(dir, "app.ts"), contents);
+    return dir;
+  }
+
+  function stopAt(cwd: string): string {
+    return stopIn("Done.", cwd);
+  }
+
+  async function markOf(cwd: string): Promise<string | null> {
+    const { inferSession } = await import("../src/infer.js");
+    return (await inferSession(cwd)).mark;
+  }
+
+  it("opens no socket at all when nothing has been built since the last rep", async () => {
+    const { hook, config } = await load();
+    const cwd = repo("export const a = 1;");
+    config.writeConfig({ token: "arep_test", lastPushTouch: (await markOf(cwd)) ?? "" });
+    const door = doorWithARep();
+    vi.stubGlobal("fetch", door);
+
+    expect(await hook.runHook(stopAt(cwd))).toBeNull();
+    expect(door, "an unchanged tree must not reach the door").not.toHaveBeenCalled();
+  });
+
+  it("asks when the tree has moved since the mark", async () => {
+    const { hook, config } = await load();
+    const cwd = repo("export const a = 1;");
+    config.writeConfig({ token: "arep_test", lastPushTouch: "deadbeef" });
+    const door = doorWithARep();
+    vi.stubGlobal("fetch", door);
+
+    const out = await hook.runHook(stopAt(cwd));
+    expect(messageOf(out)).toContain(REP_MARK_CHAR);
+    expect(door).toHaveBeenCalled();
+    expect(config.readConfig().lastPushTouch, "a served rep moves the mark").toBe(
+      await markOf(cwd),
+    );
+  });
+
+  it("does not spend the change on a door that said nothing", async () => {
+    const { hook, config } = await load();
+    const cwd = repo("export const a = 1;");
+    config.writeConfig({ token: "arep_test", lastPushTouch: "deadbeef" });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ text: "", data: { kind: "quiet", reason: "gap" } }), {
+            headers: { "content-type": "application/json" },
+          }),
+      ),
+    );
+
+    await hook.runHook(stopAt(cwd));
+    expect(config.readConfig().lastPushTouch, "a quiet door leaves the work unasked").toBe(
+      "deadbeef",
+    );
+  });
+});
+
+describe("the working tree in eight characters", () => {
+  it("is the same text twice, and different when a character moves", async () => {
+    const { fingerprint } = await import("../src/infer.js");
+    expect(fingerprint("M src/a.ts")).toBe(fingerprint("M src/a.ts"));
+    expect(fingerprint("M src/a.ts")).not.toBe(fingerprint("M src/b.ts"));
+    expect(fingerprint("M src/a.ts:12")).not.toBe(fingerprint("M src/a.ts:400"));
+    expect(fingerprint("")).toHaveLength(8);
+  });
+
+  it("marks a plain folder, and a new file in it moves the mark", async () => {
+    const { inferSession } = await import("../src/infer.js");
+    const { writeFileSync: write } = await import("node:fs");
+    const before = (await inferSession(configHome)).mark;
+    expect(before).not.toBeNull();
+
+    write(join(configHome, "homework.py"), "print('hi')\n");
+    expect((await inferSession(configHome)).mark).not.toBe(before);
+  });
+});
+
+describe("the block as the terminal prints it", () => {
+  it("keeps the words, drops the markers and the fence, and paints the chrome", async () => {
+    const { messageBlock } = await import("../src/hook.js");
+    const { stripAnsi } = await import("../src/ansi.js");
+    const ESC = String.fromCharCode(27);
+    const block = [
+      "\u269b **Atomic Reps \u00b7 Docker**",
+      "\u2500".repeat(26),
+      "What does `--no-cache` do on **build**?",
+      "",
+      "```dockerfile",
+      "RUN apk add curl",
+      "```",
+      "",
+      "A. One",
+      "B. Two",
+      "",
+      "_Nothing fresh on that stack today, so this one is nearby._",
+      "",
+      "_From memory. Reply with a letter._",
+      "\u2500".repeat(26),
+    ].join("\n");
+    const printed = messageBlock(block);
+    const plain = stripAnsi(printed);
+    expect(plain).not.toContain("**");
+    expect(plain).not.toContain("```");
+    expect(plain).not.toContain("_From memory");
+    expect(plain).toContain("\u269b Atomic Reps \u00b7 Docker");
+    expect(plain).toContain("What does `--no-cache` do on build?");
+    expect(plain).toContain("  RUN apk add curl");
+    expect(plain).toContain("From memory. Reply with a letter.");
+    expect(plain.startsWith("\n"), "the host's label gets a line of its own").toBe(true);
+    delete process.env.NO_COLOR;
+    process.env.TERM = "xterm-256color";
+    expect(messageBlock(block), "colour when nothing refuses it").toContain(`${ESC}[1m`);
+    process.env.NO_COLOR = "1";
+    expect(messageBlock(block), "none when the person refused it").not.toContain(ESC);
+    delete process.env.NO_COLOR;
   });
 });

@@ -1,12 +1,23 @@
 import { spawn } from "node:child_process";
-import { closeSync, existsSync, openSync, readFileSync, readSync, statSync } from "node:fs";
-import { basename, dirname, extname, join } from "node:path";
+import type { Dirent } from "node:fs";
+import {
+  closeSync,
+  existsSync,
+  openSync,
+  readdirSync,
+  readFileSync,
+  readSync,
+  statSync,
+} from "node:fs";
+import { basename, dirname, extname, join, relative } from "node:path";
 
 import * as clock from "./clock.js";
 import {
   INFER_BUDGET_MS,
   MAX_BYTES_PER_FILE,
   MAX_CHANGED,
+  MAX_SCAN_DEPTH,
+  MAX_SCAN_FILES,
   MAX_DIFF_BYTES,
   MAX_EXTENSIONS_SENT,
   MAX_FILES_READ,
@@ -14,6 +25,7 @@ import {
   MAX_MANIFEST_DEPS,
   MAX_PACKAGES_SENT,
   MAX_ROOT_HOPS,
+  SCAN_SKIP,
 } from "./constants.js";
 import { applyGrammar } from "./touch.js";
 import type { LocalHints, TouchGrammar } from "./types.js";
@@ -72,6 +84,45 @@ function readHead(path: string): string {
   }
 }
 
+function scanRecent(
+  cwd: string,
+  deadline: { remaining: () => number },
+): { files: string[]; mark: string } | null {
+  const found: Array<{ rel: string; mtime: number; size: number }> = [];
+  const queue: Array<{ dir: string; depth: number }> = [{ dir: cwd, depth: 0 }];
+  while (queue.length > 0) {
+    const next = queue.shift();
+    if (!next || deadline.remaining() <= 0) return null;
+    let entries: Dirent[];
+    try {
+      entries = readdirSync(next.dir, { withFileTypes: true, encoding: "utf8" });
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      if (entry.name.startsWith(".")) continue;
+      const path = join(next.dir, entry.name);
+      if (entry.isDirectory()) {
+        if (next.depth + 1 > MAX_SCAN_DEPTH || SCAN_SKIP.has(entry.name)) continue;
+        queue.push({ dir: path, depth: next.depth + 1 });
+        continue;
+      }
+      if (!entry.isFile()) continue;
+      if (found.length >= MAX_SCAN_FILES) return null;
+      try {
+        const stat = statSync(path);
+        found.push({ rel: relative(cwd, path), mtime: stat.mtimeMs, size: stat.size });
+      } catch {
+      }
+    }
+  }
+  const byRecency = found.toSorted((a, b) => b.mtime - a.mtime);
+  return {
+    files: byRecency.slice(0, MAX_CHANGED).map((entry) => entry.rel),
+    mark: fingerprint(byRecency.map((e) => `${e.rel}:${e.mtime}:${e.size}`).join("|")),
+  };
+}
+
 const IMPORT_RE = /(?:from\s+|require\(|import\s+)["']([^"']+)["']/g;
 
 function importSpecifiers(source: string): string[] {
@@ -110,7 +161,7 @@ function isSafeRepoPath(entry: string): boolean {
   return !/[\u0000-\u001f]/.test(entry);
 }
 
-function repoRoot(cwd: string): string {
+function findRepoRoot(cwd: string): string | null {
   let dir = cwd;
   for (let hops = 0; hops < MAX_ROOT_HOPS; hops++) {
     if (existsSync(join(dir, ".git"))) return dir;
@@ -118,7 +169,7 @@ function repoRoot(cwd: string): string {
     if (parent === dir) break;
     dir = parent;
   }
-  return cwd;
+  return null;
 }
 
 function extensionOf(path: string): string {
@@ -135,25 +186,35 @@ export function addedLines(diff: string): string[] {
   return lines;
 }
 
-export async function inferHints(
+export type Session = { hints: LocalHints; mark: string | null };
+
+export async function inferSession(
   cwd: string,
   budgetMs = INFER_BUDGET_MS,
   grammar: TouchGrammar | null = null,
-): Promise<LocalHints> {
+): Promise<Session> {
   const deadline = clock.deadline(budgetMs);
 
-  const root = repoRoot(cwd);
+  const inRepo = findRepoRoot(cwd);
+  const root = inRepo ?? cwd;
 
-  const changedRaw = await runGit(
-    cwd,
-    ["status", "--porcelain", "-z", "--untracked-files=all", "--no-renames"],
-    Math.min(deadline.remaining(), budgetMs * 0.4),
-  );
-  const changed = changedRaw
-    .split("\0")
-    .map((entry) => entry.slice(3).trim())
-    .filter(isSafeRepoPath)
-    .slice(0, MAX_CHANGED);
+  const changedRaw =
+    inRepo === null
+      ? ""
+      : await runGit(
+          cwd,
+          ["status", "--porcelain", "-z", "--untracked-files=all", "--no-renames"],
+          Math.min(deadline.remaining(), budgetMs * 0.4),
+        );
+  const scan = inRepo === null ? scanRecent(cwd, deadline) : null;
+  const changed =
+    scan === null
+      ? changedRaw
+          .split("\0")
+          .map((entry) => entry.slice(3).trim())
+          .filter(isSafeRepoPath)
+          .slice(0, MAX_CHANGED)
+      : scan.files.filter(isSafeRepoPath);
 
   const extensions = new Set<string>();
   const packages = new Set<string>();
@@ -201,8 +262,29 @@ export async function inferHints(
       : applyGrammar(grammar, { paths: changed, addedLines: addedLines(diff), heads, deadline });
 
   return {
-    packages: [...packages].slice(0, MAX_PACKAGES_SENT),
-    extensions: [...extensions].slice(0, MAX_EXTENSIONS_SENT),
-    touched,
+    hints: {
+      packages: [...packages].slice(0, MAX_PACKAGES_SENT),
+      extensions: [...extensions].slice(0, MAX_EXTENSIONS_SENT),
+      touched,
+    },
+    mark:
+      inRepo === null ? (scan?.mark ?? null) : fingerprint(`${changedRaw}|${String(diff.length)}`),
   };
+}
+
+export async function inferHints(
+  cwd: string,
+  budgetMs = INFER_BUDGET_MS,
+  grammar: TouchGrammar | null = null,
+): Promise<LocalHints> {
+  return (await inferSession(cwd, budgetMs, grammar)).hints;
+}
+
+export function fingerprint(text: string): string {
+  let h = 0x81_1c_9d_c5;
+  for (const ch of text) {
+    h ^= ch.codePointAt(0) ?? 0;
+    h = Math.imul(h, 0x01_00_01_93) >>> 0;
+  }
+  return h.toString(16).padStart(8, "0");
 }

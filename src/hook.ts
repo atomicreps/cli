@@ -1,3 +1,4 @@
+import { tint } from "./ansi.js";
 import * as api from "./api.js";
 import * as clock from "./clock.js";
 import { readConfig, updateConfig } from "./config.js";
@@ -7,8 +8,8 @@ import {
   INFER_BUDGET_MS,
   MAX_SHORT_PROMPT_CHARS,
 } from "./constants.js";
-import { isRepBlock } from "./format.js";
-import { inferHints } from "./infer.js";
+import { isRepBlock, REP_FOOTER, REP_FOOTER_TAP, REP_MARK, REP_RULE } from "./format.js";
+import { inferSession } from "./infer.js";
 import {
   cachedGrammar,
   cachedGrammarVersion,
@@ -34,12 +35,10 @@ import {
 
 const LETTER = /^\s*([A-Da-d])(?:[.):]|\s|$)/;
 const DIGIT = /^\s*([1-3])(?:[.):]|\s|$)/;
-
-export const REP_ETIQUETTE =
-  "A rep for the person at the keyboard arrived from Atomic Reps. After you finish answering their message, append the block below verbatim as the last thing you write. Do not solve it, hint at it, or comment on it. If their next message is a single letter, the hook grades it. This block is the only rep this turn; never write one yourself.";
+const OUR_COMMAND = /^\s*\/(?:mcp__atomicreps[\w-]*__rep|atomicreps:rep)(?:\s|$)/;
 
 export const QUIET_CONTEXT =
-  "Atomic Reps: no rep this turn. Write no rep block and say nothing about this. A rep exists only as text the hook or the rep tool hands you; never compose, complete or paraphrase one.";
+  "Atomic Reps: no rep this turn. Write no rep block and say nothing about this. A rep exists only as text the hook, the rep tool or the rep prompt hands you; never compose, complete or paraphrase one.";
 
 export const VERDICT_ETIQUETTE =
   "The person just answered their pending rep and the verdict is below. Relay the block verbatim as your whole reply, nothing before or after.";
@@ -77,6 +76,41 @@ export function digitOf(prompt: string): number | null {
   return match?.[1] === undefined ? null : Number(match[1]);
 }
 
+export function endsOnQuestion(text: string | undefined): boolean {
+  if (typeof text !== "string") return false;
+  return /\?[\s*_\u0060~\u0022\u0027)\]]*$/.test(text);
+}
+
+export function messageBlock(text: string): string {
+  const lines: string[] = [];
+  let inCode = false;
+  for (const line of text.split("\n")) {
+    if (line.startsWith("```")) {
+      inCode = !inCode;
+      continue;
+    }
+    if (inCode) {
+      lines.push(`  ${line}`);
+      continue;
+    }
+    if (line === REP_RULE) {
+      lines.push(tint(line, "faint"));
+      continue;
+    }
+    const header = /^⚛ \*\*(.*)\*\*$/.exec(line);
+    if (header?.[1] !== undefined) {
+      lines.push(`${REP_MARK} ${tint(header[1], "bold", "coral")}`);
+      continue;
+    }
+    if (line === REP_FOOTER || line === REP_FOOTER_TAP || /^_(.+)_$/.test(line)) {
+      lines.push(tint(line.replace(/^_(.+)_$/, "$1"), "dim"));
+      continue;
+    }
+    lines.push(line.replace(/\*\*(.+?)\*\*/g, (_, inner: string) => tint(inner, "bold")));
+  }
+  return `\n${lines.join("\n")}`;
+}
+
 async function gradeLetter(pick: Pick, id: string, now: clock.EpochMs): Promise<HookOutput | null> {
   const result = await api.answer(id, pick);
   if (!result.ok) return quiet();
@@ -87,26 +121,35 @@ async function gradeLetter(pick: Pick, id: string, now: clock.EpochMs): Promise<
   return context(`${VERDICT_ETIQUETTE}\n\n${result.value.text}`);
 }
 
+function servedBlock(result: ApiResult<ToolReply>, now: clock.EpochMs): string | null {
+  if (!result.ok) return null;
+  const data = result.value.data ?? {};
+  observeClient(result.value.client, now);
+  observeRep(data, result.value.text, now);
+  if (data.kind !== "question" && data.kind !== "insight") return null;
+  if (!isRepBlock(result.value.text)) return null;
+  return result.value.text;
+}
+
 async function handOver(
   result: ApiResult<ToolReply>,
   etiquette: string,
   now: clock.EpochMs,
 ): Promise<HookOutput> {
-  if (!result.ok) return quiet();
-  const data = result.value.data ?? {};
-  observeClient(result.value.client, now);
-  observeRep(data, result.value.text, now);
-  if (data.kind !== "question" && data.kind !== "insight") return quiet();
-  if (!isRepBlock(result.value.text)) return quiet();
-  return context(`${etiquette}\n\n${result.value.text}`);
+  const block = servedBlock(result, now);
+  return block === null ? quiet() : context(`${etiquette}\n\n${block}`);
 }
 
 async function fetchRep(cwd: string, now: clock.EpochMs): Promise<HookOutput | null> {
-  const hints = await inferHints(cwd, INFER_BUDGET_MS, cachedGrammar());
-  if (allMuted(hints.touched, cachedMuteKeys(now))) return quiet();
+  const { hints, mark } = await inferSession(cwd, INFER_BUDGET_MS, cachedGrammar());
+  if (mark !== null && mark === readConfig().lastPushTouch) return null;
+  if (allMuted(hints.touched, cachedMuteKeys(now))) return null;
   const result = await api.rep({ hints, kind: "auto" }, HOOK_DEADLINE_MS);
   if (!result.ok) updateConfig({ nextEligibleAt: now + DEGRADED_BACKOFF_MS });
-  return await handOver(result, REP_ETIQUETTE, now);
+  const block = servedBlock(result, now);
+  if (block === null) return null;
+  if (mark !== null) updateConfig({ lastPushTouch: mark });
+  return { systemMessage: messageBlock(block) };
 }
 
 export type HookState = {
@@ -123,25 +166,31 @@ export type HookAction =
   | { kind: "take"; handle: string }
   | { kind: "push"; cwd: string };
 
-export function decide(input: HookInput, state: HookState, now: clock.EpochMs): HookAction {
-  if (input.hook_event_name !== undefined && input.hook_event_name !== "UserPromptSubmit") {
+function decideStop(input: HookInput, state: HookState, now: clock.EpochMs): HookAction {
+  if (!state.hasToken) return { kind: "ignore" };
+  if (endsOnQuestion(input.last_assistant_message)) return { kind: "ignore" };
+  if (state.nextEligibleAt !== undefined && clock.locallyQuiet(state.nextEligibleAt, now)) {
     return { kind: "ignore" };
   }
+  if (state.pending) return { kind: "ignore" };
+  return { kind: "push", cwd: input.cwd ?? process.cwd() };
+}
+
+export function decide(input: HookInput, state: HookState, now: clock.EpochMs): HookAction {
+  const event = input.hook_event_name ?? "UserPromptSubmit";
+  if (event === "Stop") return decideStop(input, state, now);
+  if (event !== "UserPromptSubmit") return { kind: "ignore" };
+  const prompt = input.prompt ?? "";
+  if (OUR_COMMAND.test(prompt)) return { kind: "ignore" };
   if (!state.hasToken) return { kind: "quiet" };
 
-  const prompt = input.prompt ?? "";
   const letter = letterOf(prompt);
   if (letter && state.pending) return { kind: "grade", id: state.pending.id, pick: letter };
 
   const digit = digitOf(prompt);
   const entry = digit === null || state.pending ? undefined : state.offer[digit - 1];
   if (entry) return { kind: "take", handle: entry.handle };
-
-  if (state.nextEligibleAt !== undefined && clock.locallyQuiet(state.nextEligibleAt, now)) {
-    return { kind: "quiet" };
-  }
-  if (state.pending) return { kind: "quiet" };
-  return { kind: "push", cwd: input.cwd ?? process.cwd() };
+  return { kind: "quiet" };
 }
 
 export function readState(now: clock.EpochMs): HookState {

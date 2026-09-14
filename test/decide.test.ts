@@ -22,20 +22,54 @@ function typed(text: string): HookInput {
   return { hook_event_name: "UserPromptSubmit", prompt: text, cwd: "/repo" };
 }
 
+function stopped(last = "Done: the form validates on blur."): HookInput {
+  return { hook_event_name: "Stop", last_assistant_message: last, cwd: "/repo" };
+}
+
 const CASES: ReadonlyArray<
   [name: string, input: HookInput, state: HookState, expected: HookAction]
 > = [
   [
     "a foreign event gets nothing at all, token and pending rep and all",
-    { hook_event_name: "Stop", prompt: "B" },
+    { hook_event_name: "SessionStart", prompt: "B" },
     given({ pending: served() }),
     { kind: "ignore" },
   ],
   [
-    "an event name the host left out is treated as ours",
+    "an event name the host left out is a prompt, the older contract",
     { prompt: "done with the form", cwd: "/repo" },
     given(),
-    { kind: "push", cwd: "/repo" },
+    { kind: "quiet" },
+  ],
+  [
+    "a pull through the door's own prompt gets nothing from the hook, not even the quiet line",
+    typed("/mcp__atomicreps-alpha__rep react"),
+    given(),
+    { kind: "ignore" },
+  ],
+  [
+    "the plugin's own rep skill, the same",
+    typed("/atomicreps:rep useEffect"),
+    given({ pending: served() }),
+    { kind: "ignore" },
+  ],
+  [
+    "another server's prompt is an ordinary prompt",
+    typed("/mcp__github__issue 12"),
+    given(),
+    { kind: "quiet" },
+  ],
+  [
+    "a Stop never grades, even one whose last message is a letter",
+    stopped("B"),
+    given({ pending: served() }),
+    { kind: "ignore" },
+  ],
+  [
+    "a Stop with no token is nothing, never the quiet line",
+    stopped(),
+    given({ hasToken: false }),
+    { kind: "ignore" },
   ],
   [
     "no token is quiet, whatever the prompt looks like",
@@ -59,7 +93,7 @@ const CASES: ReadonlyArray<
     "a letter with nothing pending and the clock spent is an ordinary prompt",
     typed("B"),
     given(),
-    { kind: "push", cwd: "/repo" },
+    { kind: "quiet" },
   ],
   [
     "a digit under an open offer takes that entry",
@@ -80,32 +114,50 @@ const CASES: ReadonlyArray<
     { kind: "quiet" },
   ],
   [
-    "a running clock is quiet",
-    typed("ship the container"),
+    "a running clock is nothing",
+    stopped(),
     given({ nextEligibleAt: NOW + 60_000 }),
-    { kind: "quiet" },
+    { kind: "ignore" },
   ],
   [
-    "a clock that has just run out is not",
-    typed("ship the container"),
+    "a clock that has just run out is a push",
+    stopped(),
     given({ nextEligibleAt: NOW - 1 }),
     { kind: "push", cwd: "/repo" },
   ],
   [
-    "an unanswered rep is quiet even with the clock spent",
-    typed("ship the container"),
+    "an unanswered rep is nothing even with the clock spent",
+    stopped(),
     given({ pending: served() }),
-    { kind: "quiet" },
+    { kind: "ignore" },
   ],
   [
-    "an ordinary prompt with nothing in the way is a push, in the host's directory",
-    typed("done with the form"),
+    "a turn that ended on a question is nothing: the person is about to answer it",
+    stopped("Shall I apply the same to the other routes?"),
+    given(),
+    { kind: "ignore" },
+  ],
+  [
+    "a question mid-message does not hold the rep back",
+    stopped("Why? Because the index was missing. Fixed and tested."),
     given(),
     { kind: "push", cwd: "/repo" },
   ],
+  [
+    "a finished turn with nothing in the way is a push, in the host's directory",
+    stopped(),
+    given(),
+    { kind: "push", cwd: "/repo" },
+  ],
+  [
+    "an ordinary prompt with nothing in the way is the quiet line, never a push",
+    typed("done with the form"),
+    given(),
+    { kind: "quiet" },
+  ],
 ];
 
-describe("what a prompt becomes", () => {
+describe("what an event becomes", () => {
   for (const [name, input, state, expected] of CASES) {
     it(name, () => {
       expect(decide(input, state, NOW)).toEqual(expected);

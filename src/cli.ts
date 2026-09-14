@@ -17,7 +17,7 @@ const HELP = `atomicreps - one short rep about the thing you just built, inside 
   npx atomicreps mcp        the stdio bridge to the door (what the editor launches)
   npx atomicreps doctor     token, server ping, quiet clock, allowlist
   npx atomicreps logout     forget the token on this machine
-  npx atomicreps hook       the Claude Code plugin's UserPromptSubmit hook (stdin JSON in, context out)
+  npx atomicreps hook       the Claude Code plugin's Stop and UserPromptSubmit hook (stdin JSON in, JSON out)
   npx atomicreps statusline one line for a Claude Code status line
 
 Add --alpha to any command to use the staging door instead of the live one.

@@ -36,7 +36,7 @@ for the day. Every failure answers quiet rather than an error; `doctor` says why
 ```mermaid
 flowchart LR
   subgraph editor [Editor]
-    CC[Claude Code hook<br/>UserPromptSubmit]
+    CC[Claude Code hooks<br/>Stop, UserPromptSubmit]
     MC[MCP client<br/>Claude Code, Cursor, Codex]
     SL[Status line]
   end
@@ -44,7 +44,7 @@ flowchart LR
     TUI[npx atomicreps<br/>setup, home, login, doctor]
   end
   subgraph pkg [atomicreps package]
-    HOOK[hook.ts<br/>decide: letter, digit, eligible<br/>perform: grade, take, push]
+    HOOK[hook.ts<br/>decide: Stop or prompt, letter, digit<br/>perform: push, grade, take]
     BRIDGE[mcp.ts Bridge<br/>legacy or modern era]
     INFER[infer.ts + touch.ts<br/>git status, diff, heads<br/>x grammar = touched handles]
     STORE[store.ts<br/>reps, status, topics, grammar]
