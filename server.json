@@ -6,12 +6,12 @@
     "url": "https://github.com/atomicreps/cli",
     "source": "github"
   },
-  "version": "0.0.8",
+  "version": "0.0.10",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "atomicreps",
-      "version": "0.0.8",
+      "version": "0.0.10",
       "runtimeHint": "npx",
       "transport": {
         "type": "stdio"

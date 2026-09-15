@@ -61,6 +61,32 @@ function colourAllowed(): boolean {
 
 export const COLOUR = colourAllowed();
 
+export function deepColour(env = process.env): boolean {
+  return COLOUR && (env.COLORTERM === "truecolor" || env.COLORTERM === "24bit");
+}
+
+export function to256(r: number, g: number, b: number): number {
+  if (Math.abs(r - g) < 8 && Math.abs(g - b) < 8) {
+    if (r < 8) return 16;
+    if (r > 248) return 231;
+    return 232 + Math.round(((r - 8) / 247) * 24);
+  }
+  const step = (v: number) => Math.round((v / 255) * 5);
+  return 16 + 36 * step(r) + 6 * step(g) + step(b);
+}
+
+export type Rgb = readonly [number, number, number];
+
+export function cell(glyph: string, fg: Rgb | null, bg: Rgb | null, deep: boolean): string {
+  if (!COLOUR) return glyph;
+  const paintFg = (c: Rgb) =>
+    deep ? `${ESC}[38;2;${c[0]};${c[1]};${c[2]}m` : `${ESC}[38;5;${to256(...c)}m`;
+  const paintBg = (c: Rgb) =>
+    deep ? `${ESC}[48;2;${c[0]};${c[1]};${c[2]}m` : `${ESC}[48;5;${to256(...c)}m`;
+  if (fg === null && bg === null) return glyph;
+  return `${bg === null ? "" : paintBg(bg)}${fg === null ? "" : paintFg(fg)}${glyph}${ESC}[0m`;
+}
+
 export function paint(text: string, ...tones: Tone[]): string {
   if (!COLOUR || tones.length === 0) return text;
   const codes = codesFor(currentTheme);

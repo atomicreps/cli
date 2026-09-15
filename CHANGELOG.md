@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.0.10
+
+- Loop's face is redrawn. Much bigger eyes, each with a catchlight in it rather than a flat dark slot, and a mouth about half the width it was. His cheeks show now. He has brows, so the face he pulls when you break something is a face and not a pair of dashes. Asleep, his eyes land on his head instead of hovering above it.
+
+## 0.0.9
+
+- Loop is drawn by the mascot himself now, in colour, instead of the box glyphs that stood in for him. A terminal without colour still gets a drawn Loop, redrawn so he reads as an animal rather than a box with a face.
+- The home screen leads with one thing: do a rep. The other nine keys moved behind `?`, grouped and each saying what it is set to; they all still work from the home screen, so nothing you had learned has moved.
+- Your day reads as figures rather than sentences: a week of streak dots, and a meter on the reps you have asked for against the day's ceiling.
+- The list of areas no longer runs off the side of the screen. It is cut to the width it actually has.
+- Every rep now carries a link to answer it in a browser. Answering with a letter wakes your agent for a whole turn, which is the expensive part of a rep; the link costs nothing but the click. It opens for you and nobody else, and it does not expire.
+
 ## 0.0.8
 
 - `hook`, `mcp`, `statusline` and `doctor` now follow whichever channel you signed in with, when none is named; production wins if both are signed in. `login`, `connect` and `logout` still need an explicit channel; `doctor` says when it picked one automatically.

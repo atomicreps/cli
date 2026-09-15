@@ -2,9 +2,9 @@ import { spawnSync } from "node:child_process";
 
 import { paint, padTo, sanitize, stripAnsi } from "./ansi.js";
 import { apiOrigin, isAlpha, siteOrigin } from "./config.js";
-import { ART_GUTTER, ART_WIDTH, CLEAR, HIDE_CURSOR, SHOW_CURSOR } from "./constants.js";
+import { ART_GUTTER, CLEAR, HIDE_CURSOR, SHOW_CURSOR } from "./constants.js";
 import { decodeKey } from "./keys.js";
-import { loopArt } from "./loop.js";
+import { loopRows, type LoopOptions } from "./loop.js";
 import type { LoopPose } from "./types.js";
 
 export const WIDTH = Math.min(process.stdout.columns || 80, 88);
@@ -38,13 +38,17 @@ export function keyHint(pairs: ReadonlyArray<readonly [string, string]>): string
     .join("   ");
 }
 
-export function withLoop(pose: LoopPose, copy: string[]): string[] {
-  const art = loopArt(pose);
+export function withLoop(pose: LoopPose, copy: string[], options: LoopOptions = {}): string[] {
+  return beside(loopRows(pose, "small", options), copy, ART_GUTTER);
+}
+
+export function beside(art: string[], copy: string[], gutter: number): string[] {
   const rows = Math.max(art.length, copy.length);
+  const top = Math.max(0, Math.floor((art.length - copy.length) / 2));
   const lines: string[] = [];
   for (let i = 0; i < rows; i++) {
-    const left = art[i] ?? " ".repeat(ART_WIDTH);
-    lines.push(`${padTo(left, ART_GUTTER)}${copy[i] ?? ""}`);
+    const left = art[i] ?? "";
+    lines.push(`${padTo(left, gutter)}${copy[i - top] ?? ""}`);
   }
   return lines;
 }
