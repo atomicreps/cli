@@ -461,15 +461,15 @@ async function depthScreen(summary: Summary): Promise<void> {
   await confirmSaved(await api.settings({ levels: picked.value.levels }));
 }
 
-function manualLines(): string[] {
+function manualLines(pin = false): string[] {
   return [
     "Server entry, for any MCP client:",
-    ...JSON.stringify(cursorConfig(), null, 2)
+    ...JSON.stringify(cursorConfig(pin), null, 2)
       .split("\n")
       .map((line) => `  ${line}`),
     "",
-    `Claude Code:  ${claudeAddCommand()}`,
-    `Codex:        ${codexAddCommand()}`,
+    `Claude Code:  ${claudeAddCommand(pin)}`,
+    `Codex:        ${codexAddCommand(pin)}`,
     `Cursor:       ${cursorMcpPath()}`,
     `Windsurf:     ${windsurfMcpPath()}`,
     "",
@@ -496,12 +496,12 @@ function connectSummary(picked: ReadonlySet<string>): {
   return { text: `${rows} on enter; the config is printed for anything else.`, ready: true };
 }
 
-export async function connect(interactive = isInteractive()): Promise<void> {
+export async function connect(interactive = isInteractive(), pin = false): Promise<void> {
   if (!interactive) {
-    plain([title("Connect your coding agent."), "", ...manualLines()]);
+    plain([title("Connect your coding agent."), "", ...manualLines(pin)]);
     return;
   }
-  const offers = connectOffers();
+  const offers = connectOffers(pin);
   const picked = await pickMany({
     items: offers.map(({ target, found }) => ({
       id: target.id,

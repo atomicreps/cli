@@ -15,6 +15,7 @@ const HELP = `atomicreps - one short rep about the thing you just built, inside 
   npx atomicreps setup      the first-run wizard: what to practise, how often, how hard
   npx atomicreps login      sign in from a browser with a typed code
   npx atomicreps connect    pick which editors to wire up; writes nothing you did not pick
+  npx atomicreps connect --pin   pin the launch args to this installed version, for a command you can commit
   npx atomicreps mcp        the MCP server the editor launches
   npx atomicreps doctor     token, server ping, quiet clock, allowlist
   npx atomicreps logout     forget the token on this machine
@@ -98,7 +99,7 @@ async function main(raw: string[]): Promise<number> {
         process.stdout.write("Not signed in yet. Run npx atomicreps login first.\n");
         return 1;
       }
-      await connect(false);
+      await connect(false, argv.includes("--pin"));
       return 0;
     case "doctor":
       return await doctor();

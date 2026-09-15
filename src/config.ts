@@ -119,7 +119,11 @@ export function noteFailure(message: string, now: clock.EpochMs): void {
 
 export function noteQuiet(reason: string, detail: string | undefined, now: clock.EpochMs): void {
   const message = detail ? `${reason}: ${detail}` : reason;
-  updateConfig({ lastQuietAt: now, lastQuiet: message.slice(0, MAX_NOTE_CHARS) });
+  updateConfig({
+    lastQuietAt: now,
+    lastQuiet: message.slice(0, MAX_NOTE_CHARS),
+    quietReason: reason,
+  });
 }
 
 const LOOPBACK = /^http:\/\/(?:localhost|127\.0\.0\.1|\[::1\])(?::\d{1,5})?$/;

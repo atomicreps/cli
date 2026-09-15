@@ -7,29 +7,31 @@ import { isAlpha } from "./config.js";
 import { PROBE_MS, TOOL_NAMES } from "./constants.js";
 import { ensureDir, readJsonFile, writeFileAtomic } from "./files.js";
 import { isRecord, stringList } from "./types.js";
+import { SERVER_VERSION } from "./version.js";
 
 export function serverName(): string {
   return isAlpha() ? "atomicreps-alpha" : "atomicreps";
 }
 
-export function bridgeArgs(): string[] {
-  return isAlpha() ? ["-y", "atomicreps", "mcp", "--alpha"] : ["-y", "atomicreps", "mcp"];
+export function bridgeArgs(pin = false): string[] {
+  const pkg = pin ? `atomicreps@${SERVER_VERSION}` : "atomicreps";
+  return isAlpha() ? ["-y", pkg, "mcp", "--alpha"] : ["-y", pkg, "mcp"];
 }
 
 export function toolAllowlist(): string[] {
   return TOOL_NAMES.map((tool) => `mcp__${serverName()}__${tool}`);
 }
 
-export function claudeAddArgs(): string[] {
-  return ["mcp", "add", "--scope", "user", serverName(), "--", "npx", ...bridgeArgs()];
+export function claudeAddArgs(pin = false): string[] {
+  return ["mcp", "add", "--scope", "user", serverName(), "--", "npx", ...bridgeArgs(pin)];
 }
 
-export function claudeAddCommand(): string {
-  return `claude ${claudeAddArgs().join(" ")}`;
+export function claudeAddCommand(pin = false): string {
+  return `claude ${claudeAddArgs(pin).join(" ")}`;
 }
 
-export function cursorConfig(): Record<string, unknown> {
-  return { mcpServers: { [serverName()]: { command: "npx", args: bridgeArgs() } } };
+export function cursorConfig(pin = false): Record<string, unknown> {
+  return { mcpServers: { [serverName()]: { command: "npx", args: bridgeArgs(pin) } } };
 }
 
 export function claudeSettingsPath(): string {
@@ -113,7 +115,7 @@ export function windsurfMcpPath(): string {
   return join(homedir(), ".codeium", "windsurf", "mcp_config.json");
 }
 
-export function mergeMcpJson(path: string): Applied {
+export function mergeMcpJson(path: string, pin = false): Applied {
   const parsed = readJsonFile<Record<string, unknown>>(path);
   if (parsed === null && existsSync(path)) {
     return { state: "failed", says: `${path} did not parse; add the entry by hand` };
@@ -122,19 +124,19 @@ export function mergeMcpJson(path: string): Applied {
   const servers = isRecord(base.mcpServers) ? base.mcpServers : {};
   const next = {
     ...base,
-    mcpServers: { ...servers, [serverName()]: { command: "npx", args: bridgeArgs() } },
+    mcpServers: { ...servers, [serverName()]: { command: "npx", args: bridgeArgs(pin) } },
   };
   ensureDir(dirname(path));
   writeFileAtomic(path, `${JSON.stringify(next, null, 2)}\n`);
   return { state: "done", says: `added to ${path}` };
 }
 
-export function codexAddArgs(): string[] {
-  return ["mcp", "add", serverName(), "--", "npx", ...bridgeArgs()];
+export function codexAddArgs(pin = false): string[] {
+  return ["mcp", "add", serverName(), "--", "npx", ...bridgeArgs(pin)];
 }
 
-export function codexAddCommand(): string {
-  return `codex ${codexAddArgs().join(" ")}`;
+export function codexAddCommand(pin = false): string {
+  return `codex ${codexAddArgs(pin).join(" ")}`;
 }
 
 function runCli(
@@ -152,16 +154,16 @@ function runCli(
     : { state: "failed", says: output || `could not run: ${line}` };
 }
 
-export function agentTargets(): readonly AgentTarget[] {
+export function agentTargets(pin = false): readonly AgentTarget[] {
   return [
     {
       id: "claude",
       label: "Claude Code",
       hint: "user scope",
-      detail: `Runs ${claudeAddCommand()}`,
+      detail: `Runs ${claudeAddCommand(pin)}`,
       found: () => claudeAvailable(),
       apply: (found) =>
-        runCli(found, "claude", claudeAddArgs(), "added at user scope", claudeAddCommand()),
+        runCli(found, "claude", claudeAddArgs(pin), "added at user scope", claudeAddCommand(pin)),
     },
     {
       id: "allowlist",
@@ -189,7 +191,7 @@ export function agentTargets(): readonly AgentTarget[] {
       hint: tilde(cursorMcpPath()),
       detail: "Adds one entry to the mcpServers object; anything already in that file stays.",
       found: () => existsSync(join(homedir(), ".cursor")),
-      apply: () => mergeMcpJson(cursorMcpPath()),
+      apply: () => mergeMcpJson(cursorMcpPath(), pin),
     },
     {
       id: "windsurf",
@@ -197,16 +199,16 @@ export function agentTargets(): readonly AgentTarget[] {
       hint: tilde(windsurfMcpPath()),
       detail: "Adds one entry to the mcpServers object; anything already in that file stays.",
       found: () => existsSync(join(homedir(), ".codeium", "windsurf")),
-      apply: () => mergeMcpJson(windsurfMcpPath()),
+      apply: () => mergeMcpJson(windsurfMcpPath(), pin),
     },
     {
       id: "codex",
       label: "Codex",
       hint: "codex mcp add",
-      detail: `Runs ${codexAddCommand()}`,
+      detail: `Runs ${codexAddCommand(pin)}`,
       found: () => cliAnswers("codex"),
       apply: (found) =>
-        runCli(found, "codex", codexAddArgs(), "registered with Codex", codexAddCommand()),
+        runCli(found, "codex", codexAddArgs(pin), "registered with Codex", codexAddCommand(pin)),
     },
     {
       id: "manual",
@@ -232,9 +234,9 @@ export function orderOffers<T extends { target: AgentTarget; found: boolean }>(
     .map((entry) => entry.offer);
 }
 
-export function connectOffers(): Offer[] {
+export function connectOffers(pin = false): Offer[] {
   return orderOffers(
-    agentTargets()
+    agentTargets(pin)
       .filter((target) => target.done?.() !== true)
       .map((target) => {
         const found = target.found();

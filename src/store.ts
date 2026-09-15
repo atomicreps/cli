@@ -172,6 +172,7 @@ export function observeRep(data: Record<string, unknown>, text: string, now: num
   }
   if (data.kind === "quiet" && typeof data.reason === "string")
     noteQuiet(data.reason, undefined, now);
+  if (data.kind === "question") updateConfig({ quietReason: undefined });
   if (data.kind === "question" && typeof data.id === "string") {
     recordServed({
       id: data.id,

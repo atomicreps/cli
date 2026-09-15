@@ -235,6 +235,28 @@ export async function levelsScreen(draft: Draft, stepLine?: string): Promise<Pic
   return { ok: true, value: { ...draft, levels: picked.value } };
 }
 
+const DIALOG_INTRO =
+  "Your editor can pop up its own box for the letter and read the answer back, so neither the question nor your answer passes through the chat. Off leaves it in the chat, the way it works today.";
+
+export async function dialogScreen(draft: Draft, stepLine?: string): Promise<PickResult<Draft>> {
+  const picked = await pickOne<boolean>({
+    choices: [
+      { value: false, label: "In the chat", hint: "The letter shows up in the conversation, same as now." },
+      {
+        value: true,
+        label: "In a native dialog",
+        hint: "Your editor asks for the letter its own way; it blocks the turn until answered.",
+      },
+    ],
+    current: draft.dialog ?? false,
+    heading: "Where should the answer land?",
+    intro: DIALOG_INTRO,
+    stepLine,
+  });
+  if (!picked.ok) return picked;
+  return { ok: true, value: { ...draft, dialog: picked.value } };
+}
+
 export function patchOf(draft: Draft): SettingsPatch {
   return {
     prefer: draft.prefer,
@@ -242,6 +264,7 @@ export function patchOf(draft: Draft): SettingsPatch {
     strict: draft.strict,
     intensity: draft.intensity,
     levels: draft.levels,
+    ...(draft.dialog === undefined ? {} : { dialog: draft.dialog }),
   };
 }
 
@@ -261,7 +284,14 @@ export function draftLines(draft: Draft, names: ReadonlyMap<string, string> = ne
         : `${areas} · ${count(draft.topics.length, "topic")} pinned${gate}`;
   const { min, max } = draft.levels;
   const band = min === max ? `level ${min}` : `levels ${min} to ${max}`;
-  return [`Areas: ${scope}.`, `Rate: ${cadence?.says ?? draft.intensity}.`, `Depth: ${band}.`];
+  return [
+    `Areas: ${scope}.`,
+    `Rate: ${cadence?.says ?? draft.intensity}.`,
+    `Depth: ${band}.`,
+    ...(draft.dialog === undefined
+      ? []
+      : [`Answer: ${draft.dialog ? "native dialog" : "chat"}.`]),
+  ];
 }
 
 export async function runInstall(deps: {
@@ -297,7 +327,13 @@ export async function runInstall(deps: {
   }
 
   let draft: Draft = DEFAULT_DRAFT;
-  const screens = [scopeScreen, gateScreen, cadenceScreen, levelsScreen];
+  const screens = [
+    scopeScreen,
+    gateScreen,
+    cadenceScreen,
+    levelsScreen,
+    ...(readConfig().elicitationCapable ? [dialogScreen] : []),
+  ];
   const steps = screens.length + 1;
   for (let i = 0; i < screens.length;) {
     const screen = screens[i];

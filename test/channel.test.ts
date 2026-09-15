@@ -19,6 +19,7 @@ import {
 } from "../src/config.js";
 import { bridgeArgs, claudeAddCommand, serverName, toolAllowlist } from "../src/connect.js";
 import { ALPHA_API, ALPHA_SITE, DEFAULT_API, DEFAULT_SITE } from "../src/constants.js";
+import { SERVER_VERSION } from "../src/version.js";
 
 afterEach(() => {
   setChannel("default");
@@ -96,6 +97,20 @@ describe("what an editor gets registered", () => {
     expect(bridgeArgs()).toContain("--alpha");
     expect(claudeAddCommand()).toContain("atomicreps-alpha");
     expect(claudeAddCommand()).toContain("--alpha");
+  });
+
+  it("stays unpinned by default, so npx always resolves the latest", () => {
+    expect(bridgeArgs()).toContain("atomicreps");
+    expect(bridgeArgs().some((arg) => arg.startsWith("atomicreps@"))).toBe(false);
+  });
+
+  it("pin writes the exact version this CLI is running, alpha flag intact", () => {
+    expect(bridgeArgs(true)).toContain(`atomicreps@${SERVER_VERSION}`);
+    expect(claudeAddCommand(true)).toContain(`atomicreps@${SERVER_VERSION}`);
+    setChannel("alpha");
+    const pinned = bridgeArgs(true);
+    expect(pinned).toContain(`atomicreps@${SERVER_VERSION}`);
+    expect(pinned).toContain("--alpha");
   });
 
   it("allowlists the alpha tool names, which are not the live ones", () => {

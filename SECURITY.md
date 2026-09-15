@@ -36,6 +36,31 @@ directory created 0700. It is prefixed `arep_` so secret scanners recognise it,
 and you can revoke it on your account page. `npx atomicreps logout` forgets it;
 `logout --purge` also deletes the reps and status this machine cached.
 
+## What we keep
+
+Against your account: your editor tokens, stored as a hash, never the
+plaintext you were shown once, with when each was created, last used and
+revoked; your practice settings (rate, mutes, preferred areas, level range,
+confidence prompts, whether the letter answers in a native dialog); and your
+practice record, which catalog item was served, when, and whether you
+answered it, since that is what your accuracy and level per topic are
+computed from. Never the question text, your working tree, your code, or your
+prompts; see What leaves your machine, above.
+
+Export it, reset it, or delete the whole account from your account page
+(atomicreps.com/account). Export is self-serve, one a day. Reset
+lets you clear specific categories, such as answer history or practice
+memory, without losing the account. Deleting the account removes the tokens,
+the settings and the practice record along with everything else tied to it.
+
+## On a class seat
+
+If your account is a seat in a class a tutor controls, the tutor can see your
+participation across the roster: whether you answered, your pace, and
+rollups over time. Never the question text, and nothing about your code.
+What an institution can see and do with a class is set out in full in the
+Data Processing Agreement: atomicreps.com/dpa (Schedule E).
+
 ## Origins
 
 The token is attached to whatever `ATOMICREPS_API` names, and the browser is

@@ -148,6 +148,38 @@ describe("the stdio bridge", () => {
     expect(listed.result.ttlMs).toBe(3_600_000);
   });
 
+  it("notes a client's declared elicitation support for the setup wizard, legacy and modern both", async () => {
+    const discover = () => fakeDoor((body) => (body.method === "server/discover" ? DISCOVER : TOOLS));
+    const { readConfig } = await import("../src/config.js");
+
+    const legacy = await bridgeWith(discover());
+    await legacy.send({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "initialize",
+      params: { protocolVersion: "2025-06-18", capabilities: { elicitation: { form: {} } } },
+    });
+    expect(readConfig().elicitationCapable).toBe(true);
+
+    const silent = await bridgeWith(discover());
+    await silent.send({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "initialize",
+      params: { protocolVersion: "2025-06-18", capabilities: {} },
+    });
+    expect(readConfig().elicitationCapable).toBeUndefined();
+
+    const modern = await bridgeWith(discover());
+    await modern.send({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "server/discover",
+      params: { _meta: { "io.modelcontextprotocol/clientCapabilities": { elicitation: {} } } },
+    });
+    expect(readConfig().elicitationCapable).toBe(true);
+  });
+
   it("rep: the quiet clock opens no socket; otherwise hints ride along and the serve is noted", async () => {
     const door = fakeDoor((body) => {
       if (body.method === "server/discover") return DISCOVER;
@@ -526,5 +558,224 @@ describe("the stdio bridge", () => {
     });
     expect((readConfig().nextEligibleAt ?? 0) - Date.now()).toBeGreaterThan(50 * 60_000);
     expect(readConfig().lastQuiet).toContain("unauthorized");
+  });
+
+  it("hides rep while one is pending, announces the change, and puts it back when the letter lands", async () => {
+    const door = fakeDoor((body) => {
+      if (body.method === "server/discover") return DISCOVER;
+      if (body.method === "tools/list") return TOOLS;
+      const name = (body.params as { name?: string }).name;
+      if (name === "rep") {
+        return {
+          resultType: "complete",
+          content: [{ type: "text", text: BLOCK }],
+          structuredContent: {
+            kind: "question",
+            text: BLOCK,
+            id: "q1",
+            topicSlug: "react",
+            nextEligibleAt: Date.now() + 60 * 60_000,
+            lane: "pushed",
+          },
+        };
+      }
+      return {
+        resultType: "complete",
+        content: [{ type: "text", text: "Correct." }],
+        structuredContent: { kind: "verdict", status: "answered", correct: true },
+      };
+    });
+    const { out, send } = await bridgeWith(door);
+    const names = async (id: number) => {
+      await send({ jsonrpc: "2.0", id, method: "tools/list", params: {} });
+      const listed = out.find((m) => (m as { id?: unknown }).id === id) as {
+        result: { tools: Array<{ name: string }> };
+      };
+      return listed.result.tools.map((t) => t.name);
+    };
+    const flips = () => out.filter((m) => m.method === "notifications/tools/list_changed").length;
+
+    await send({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} });
+    expect(await names(2)).toEqual(["rep", "answer", "me", "settings"]);
+    const quiet = flips();
+
+    await send({
+      jsonrpc: "2.0",
+      id: 3,
+      method: "tools/call",
+      params: { name: "rep", arguments: {} },
+    });
+    expect(flips()).toBe(quiet + 1);
+    expect(await names(4)).toEqual(["answer", "me", "settings"]);
+
+    await send({
+      jsonrpc: "2.0",
+      id: 5,
+      method: "tools/call",
+      params: { name: "answer", arguments: { id: "q1", pick: "A" } },
+    });
+    expect(flips()).toBe(quiet + 2);
+    expect(await names(6)).toEqual(["rep", "answer", "me", "settings"]);
+  });
+
+  it("hides rep when the door is off, muted or spent, and never for the ordinary gap", async () => {
+    const door = fakeDoor((body) => (body.method === "server/discover" ? DISCOVER : TOOLS));
+    const { out, send } = await bridgeWith(door);
+    const { updateConfig } = await import("../src/config.js");
+    await send({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} });
+
+    const names = async (id: number) => {
+      await send({ jsonrpc: "2.0", id, method: "tools/list", params: {} });
+      const listed = out.find((m) => (m as { id?: unknown }).id === id) as {
+        result: { tools: Array<{ name: string }> };
+      };
+      return listed.result.tools.map((t) => t.name);
+    };
+
+    updateConfig({ nextEligibleAt: Date.now() + 60_000, quietReason: "gap" });
+    expect(await names(2)).toContain("rep");
+    updateConfig({ nextEligibleAt: Date.now() + 60_000, quietReason: "ignored" });
+    expect(await names(3)).toContain("rep");
+
+    for (const [id, reason] of [
+      [4, "off"],
+      [5, "muted"],
+      [6, "spent"],
+    ] as const) {
+      updateConfig({ nextEligibleAt: Date.now() + 60_000, quietReason: reason });
+      expect(await names(id)).not.toContain("rep");
+    }
+
+    updateConfig({ nextEligibleAt: Date.now() - 1, quietReason: "muted" });
+    expect(await names(7)).toContain("rep");
+  });
+
+  it("declares the two capabilities it implements, in both eras", async () => {
+    const door = fakeDoor((body) => (body.method === "server/discover" ? DISCOVER : TOOLS));
+    const { out, send } = await bridgeWith(door);
+    await send({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} });
+    const legacy = out[0] as { result: { capabilities: Record<string, unknown> } };
+    expect(legacy.result.capabilities.tools).toEqual({ listChanged: true });
+    expect(legacy.result.capabilities.resources).toEqual({ subscribe: true, listChanged: false });
+
+    const modern = await bridgeWith(
+      fakeDoor((body) => (body.method === "server/discover" ? DISCOVER : TOOLS)),
+    );
+    await modern.send({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "server/discover",
+      params: { _meta: { "io.modelcontextprotocol/protocolVersion": "2026-07-28" } },
+    });
+    const discovered = modern.out[0] as { result: { capabilities: Record<string, unknown> } };
+    expect(discovered.result.capabilities.tools).toEqual({ listChanged: true });
+    expect(discovered.result.capabilities.resources).toEqual({
+      subscribe: true,
+      listChanged: false,
+    });
+  });
+
+  it("subscribes to today only, and tells the subscriber when a letter moves it", async () => {
+    const door = fakeDoor((body) => {
+      if (body.method === "server/discover") return DISCOVER;
+      return {
+        resultType: "complete",
+        content: [{ type: "text", text: "Correct." }],
+        structuredContent: { kind: "verdict", status: "answered", correct: true },
+      };
+    });
+    const { out, send } = await bridgeWith(door);
+    await send({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} });
+
+    await send({
+      jsonrpc: "2.0",
+      id: 2,
+      method: "resources/subscribe",
+      params: { uri: "atomicreps://topics" },
+    });
+    expect(
+      (out.find((m) => (m as { id?: unknown }).id === 2) as { error: { code: number } }).error.code,
+    ).toBe(-32_602);
+
+    await send({
+      jsonrpc: "2.0",
+      id: 3,
+      method: "resources/subscribe",
+      params: { uri: "atomicreps://today" },
+    });
+    expect(out.find((m) => (m as { id?: unknown }).id === 3)).toHaveProperty("result", {});
+
+    await send({
+      jsonrpc: "2.0",
+      id: 4,
+      method: "tools/call",
+      params: { name: "answer", arguments: { id: "q1", pick: "A" } },
+    });
+    const updated = out.filter((m) => m.method === "notifications/resources/updated");
+    expect(updated.at(-1)).toMatchObject({ params: { uri: "atomicreps://today" } });
+
+    await send({
+      jsonrpc: "2.0",
+      id: 5,
+      method: "resources/unsubscribe",
+      params: { uri: "atomicreps://today" },
+    });
+    const before = out.filter((m) => m.method === "notifications/resources/updated").length;
+    await send({
+      jsonrpc: "2.0",
+      id: 6,
+      method: "tools/call",
+      params: { name: "answer", arguments: { id: "q2", pick: "B" } },
+    });
+    expect(out.filter((m) => m.method === "notifications/resources/updated").length).toBe(before);
+  });
+
+  it("a cancel from the editor aborts the call in flight rather than waiting the deadline out", async () => {
+    let released: (() => void) | undefined;
+    const door = fakeDoor((body) => {
+      if (body.method === "server/discover") return DISCOVER;
+      return TOOLS;
+    });
+    const slow = vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as { id: unknown; method: string };
+      if (body.method === "server/discover") {
+        return new Response(JSON.stringify({ jsonrpc: "2.0", id: body.id, result: DISCOVER }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      return await new Promise<Response>((_resolve, reject) => {
+        released = () => reject(Object.assign(new Error("aborted"), { name: "AbortError" }));
+        init?.signal?.addEventListener("abort", () => {
+          reject(Object.assign(new Error("aborted"), { name: "AbortError" }));
+        });
+      });
+    });
+    const { Bridge } = await import("../src/mcp.js");
+    const { writeConfig } = await import("../src/config.js");
+    writeConfig({ token: "arep_test" });
+    const out: Array<Record<string, unknown>> = [];
+    const bridge = new Bridge(
+      (m) => out.push(m as Record<string, unknown>),
+      configHome,
+      slow as unknown as typeof fetch,
+    );
+    await bridge.handleLine(
+      JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} }),
+    );
+    const inFlight = bridge.handleLine(
+      JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} }),
+    );
+    await bridge.handleLine(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        method: "notifications/cancelled",
+        params: { requestId: 2, reason: "the user pressed Esc" },
+      }),
+    );
+    await inFlight;
+    expect(released).toBeDefined();
+    expect(door.seen.length).toBe(0);
+    expect(out.some((m) => (m as { id?: unknown }).id === 2)).toBe(false);
   });
 });

@@ -51,6 +51,15 @@ describe("the patch the server receives", () => {
       levels: { min: 2, max: 5 },
     });
   });
+
+  it("omits dialog when the wizard never asked, rather than sending an unasked false", () => {
+    expect(patchOf(DEFAULT_DRAFT)).not.toHaveProperty("dialog");
+  });
+
+  it("carries dialog once the wizard asked, either way it was answered", () => {
+    expect(patchOf({ ...DEFAULT_DRAFT, dialog: true })).toMatchObject({ dialog: true });
+    expect(patchOf({ ...DEFAULT_DRAFT, dialog: false })).toMatchObject({ dialog: false });
+  });
 });
 
 describe("a draft from the server's summary", () => {
@@ -108,5 +117,14 @@ describe("the summary screen", () => {
     expect(draftLines({ ...DEFAULT_DRAFT, levels: { min: 1, max: 5 } })[2]).toBe(
       "Depth: levels 1 to 5.",
     );
+  });
+
+  it("says nothing about the answer dialog unless the wizard asked", () => {
+    expect(draftLines(DEFAULT_DRAFT)).toHaveLength(3);
+  });
+
+  it("names the answer dialog once the wizard asked", () => {
+    expect(draftLines({ ...DEFAULT_DRAFT, dialog: true }).at(-1)).toBe("Answer: native dialog.");
+    expect(draftLines({ ...DEFAULT_DRAFT, dialog: false }).at(-1)).toBe("Answer: chat.");
   });
 });

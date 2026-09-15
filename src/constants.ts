@@ -135,3 +135,7 @@ export const TOUCHED_SHOWN = 8;
 export const FREE_MAX_LEVEL = 1;
 
 export const INTENSITIES = ["off", "light", "regular", "intense"] as const;
+
+export const HARD_QUIET: ReadonlySet<string> = new Set(["off", "muted", "spent"]);
+
+export const WATCHED_RESOURCE = "atomicreps://today";

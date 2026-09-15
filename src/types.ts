@@ -138,7 +138,9 @@ export type Config = {
   lastFailure?: string;
   lastQuietAt?: EpochMs;
   lastQuiet?: string;
+  quietReason?: string | undefined;
   dialog?: boolean;
+  elicitationCapable?: boolean;
   setupAt?: EpochMs;
   lastPushTouch?: string;
   bridgeVersion?: string | undefined;
@@ -207,6 +209,7 @@ export type Draft = {
   readonly strict: boolean;
   readonly intensity: Intensity;
   readonly levels: LevelBand;
+  readonly dialog?: boolean;
 };
 
 export type LoopPose = "idle" | "thinking" | "impressed" | "facepalm" | "celebrating" | "sleeping";

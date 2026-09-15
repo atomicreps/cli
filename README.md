@@ -7,6 +7,7 @@ npx atomicreps            the terminal screen: you, this session, topics, mutes,
 npx atomicreps setup      first-run wizard: areas, topics, how often, how hard
 npx atomicreps login      sign in from a browser with a typed code
 npx atomicreps connect    register the server with your editor
+npx atomicreps connect --pin   pin the launch args to this installed version, for a command you can commit
 npx atomicreps mcp        the stdio MCP server process (what the editor launches)
 npx atomicreps doctor     token, server ping, version, when the next rep may come, allowlist
 npx atomicreps logout     forget the token on this machine
@@ -15,6 +16,12 @@ npx atomicreps logout --purge   also forget your reps and status; for a shared m
 
 Add `--alpha` to any command to use staging. It keeps its own token and cache,
 so you can be signed in to both staging and production at once.
+
+Plain `connect` writes `npx -y atomicreps mcp`, which always resolves to
+whatever is latest at launch. `connect --pin` writes `npx -y
+atomicreps@<version> mcp` instead, the version this CLI is running, so an
+organisation can review one exact command and commit it rather than trusting
+npx to fetch the same thing twice.
 
 ## How a rep arrives
 

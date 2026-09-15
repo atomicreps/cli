@@ -9,6 +9,7 @@ import {
   DEFAULT_API,
   DEGRADED_BACKOFF_MS,
   DOCTOR_HINT,
+  HARD_QUIET,
   INFER_BUDGET_MS,
   LEGACY_VERSIONS,
   LOGIN_DEADLINE_MS,
@@ -22,10 +23,17 @@ import {
   MS_PER_MINUTE,
   SIGN_IN_MESSAGE,
   UNAUTHORIZED_BACKOFF_MS,
+  WATCHED_RESOURCE,
 } from "./constants.js";
 import { FALLBACK_INSTRUCTIONS, FALLBACK_TOOLS } from "./format.js";
 import { inferHints } from "./infer.js";
-import { cachedGrammar, observeRep, observeVerdict, writeStatusCache } from "./store.js";
+import {
+  cachedGrammar,
+  observeRep,
+  observeVerdict,
+  pendingRep,
+  writeStatusCache,
+} from "./store.js";
 import { EMPTY_GRAMMAR, knownHandle, resolvePhrases, resolveTopic } from "./touch.js";
 import {
   isRecord,
@@ -122,11 +130,36 @@ type Era =
   | ({ readonly kind: "legacy" } & Opened)
   | ({ readonly kind: "modern" } & Opened);
 
+function repHidden(now: clock.EpochMs): boolean {
+  if (pendingRep(now) !== undefined) return true;
+  const { nextEligibleAt, quietReason } = readConfig();
+  if (typeof nextEligibleAt !== "number" || nextEligibleAt <= now) return false;
+  return quietReason !== undefined && HARD_QUIET.has(quietReason);
+}
+
+function bridgeCapabilities(base: unknown): Record<string, unknown> {
+  const declared = isRecord(base) ? base : {};
+  const tools = isRecord(declared.tools) ? declared.tools : {};
+  const resources = isRecord(declared.resources) ? declared.resources : {};
+  return {
+    ...declared,
+    tools: { ...tools, listChanged: true },
+    resources: { ...resources, subscribe: true, listChanged: false },
+  };
+}
+
+function noteElicitationCapability(clientCapabilities: Readonly<Record<string, unknown>>): void {
+  if (isRecord(clientCapabilities.elicitation)) updateConfig({ elicitationCapable: true });
+}
+
 export class Bridge {
   private era: Era = { kind: "opening" };
   private readonly inflight = new Map<string, AbortController>();
   private readonly awaitingClient = new Map<string, (message: JsonRpcMessage) => void>();
   private serverRequestId = 0;
+  private repWasHidden = false;
+  private readonly subscriptions = new Set<string>();
+  private wakeTimer: ReturnType<typeof setTimeout> | undefined;
 
   private readonly write: (message: JsonRpcMessage) => void;
   private readonly cwd: string;
@@ -240,6 +273,33 @@ export class Bridge {
     this.write({ jsonrpc: "2.0", id, error: { code, message } });
   }
 
+  private announceToolList(now: clock.EpochMs): void {
+    if (this.era.kind === "opening") return;
+    const hidden = repHidden(now);
+    if (hidden !== this.repWasHidden) {
+      this.repWasHidden = hidden;
+      this.write({ jsonrpc: "2.0", method: "notifications/tools/list_changed" });
+    }
+    this.armWake(now);
+  }
+
+  private armWake(now: clock.EpochMs): void {
+    if (this.wakeTimer) clearTimeout(this.wakeTimer);
+    this.wakeTimer = undefined;
+    if (!this.repWasHidden) return;
+    const { nextEligibleAt } = readConfig();
+    if (typeof nextEligibleAt !== "number" || nextEligibleAt <= now) return;
+    this.wakeTimer = setTimeout(() => {
+      this.announceToolList(clock.now());
+    }, nextEligibleAt - now);
+    this.wakeTimer.unref?.();
+  }
+
+  private announceResource(uri: string): void {
+    if (!this.subscriptions.has(uri)) return;
+    this.write({ jsonrpc: "2.0", method: "notifications/resources/updated", params: { uri } });
+  }
+
   private forward(id: JsonRpcId, body: JsonRpcMessage): void {
     if (body.error) this.write({ jsonrpc: "2.0", id, error: body.error });
     else if (isRecord(body.result)) this.reply(id, body.result);
@@ -287,6 +347,7 @@ export class Bridge {
       return;
     }
     await this.handleRequest(message);
+    this.announceToolList(clock.now());
   }
 
   private async handleRequest(message: JsonRpcMessage): Promise<void> {
@@ -304,13 +365,48 @@ export class Bridge {
           ? meta[META_CLIENT_CAPABILITIES]
           : {},
       };
+      noteElicitationCapability(this.era.clientCapabilities);
     }
     if (method === "ping" && this.era.kind !== "modern") return this.reply(id, {});
     if (method === "tools/call") return await this.handleToolCall(id, params);
+    if (method === "resources/subscribe" || method === "resources/unsubscribe") {
+      return this.handleSubscription(id, method, params);
+    }
 
     const door = await this.roundTrip(id, message, LOGIN_DEADLINE_MS);
-    if (door.ok) return this.forward(id, door.body);
-    if (isReportable(door.reason)) this.unreachable(id, method, door.reason, clock.now());
+    if (!door.ok) {
+      if (isReportable(door.reason)) this.unreachable(id, method, door.reason, clock.now());
+      return;
+    }
+    if (method === "tools/list" && isRecord(door.body.result)) {
+      return this.forward(id, { ...door.body, result: this.dosed(door.body.result) });
+    }
+    if (method === "server/discover" && isRecord(door.body.result)) {
+      const result = door.body.result;
+      return this.forward(id, {
+        ...door.body,
+        result: { ...result, capabilities: bridgeCapabilities(result.capabilities) },
+      });
+    }
+    this.forward(id, door.body);
+  }
+
+  private dosed(result: Record<string, unknown>): Record<string, unknown> {
+    this.repWasHidden = repHidden(clock.now());
+    if (!this.repWasHidden || !Array.isArray(result.tools)) return result;
+    const tools = result.tools.filter((tool) => !(isRecord(tool) && tool.name === "rep"));
+    return { ...result, tools };
+  }
+
+  private handleSubscription(id: JsonRpcId, method: string, params: Record<string, unknown>): void {
+    const uri = params.uri;
+    if (uri !== WATCHED_RESOURCE) {
+      this.fail(id, -32_602, `Atomic Reps only notifies on ${WATCHED_RESOURCE}.`);
+      return;
+    }
+    if (method === "resources/subscribe") this.subscriptions.add(uri);
+    else this.subscriptions.delete(uri);
+    this.reply(id, {});
   }
 
   private async handleInitialize(id: JsonRpcId, params: Record<string, unknown>): Promise<void> {
@@ -319,6 +415,7 @@ export class Bridge {
       clientInfo: isRecord(params.clientInfo) ? params.clientInfo : {},
       clientCapabilities: isRecord(params.capabilities) ? params.capabilities : {},
     };
+    noteElicitationCapability(this.era.clientCapabilities);
     const requested = params.protocolVersion;
     const protocolVersion = LEGACY_VERSIONS.find((v) => v === requested) ?? LEGACY_VERSIONS[0];
     const discover = await this.roundTrip(
@@ -336,12 +433,10 @@ export class Bridge {
       id,
       result: {
         protocolVersion,
-        capabilities: {
-          tools: { listChanged: false },
+        capabilities: bridgeCapabilities({
           prompts: { listChanged: false },
-          resources: { subscribe: false, listChanged: false },
           completions: {},
-        },
+        }),
         serverInfo: { name: "atomicreps", title: "Atomic Reps", version: SERVER_VERSION },
         instructions,
       },
@@ -501,8 +596,10 @@ export class Bridge {
     if (name === "settings" && typeof args.muteMinutes === "number" && args.muteMinutes > 0) {
       updateConfig({
         nextEligibleAt: now + Math.min(args.muteMinutes, MAX_MUTE_MINUTES) * MS_PER_MINUTE,
+        quietReason: "muted",
       });
     }
+    if (name !== "me") this.announceResource(WATCHED_RESOURCE);
   }
 }
 

@@ -164,7 +164,7 @@ export const FALLBACK_TOOLS = [
     name: "rep",
     title: "One rep about what was just built",
     description:
-      "One rep about what was just built, or the one the user asked for by handle. Returns a block to print verbatim, or nothing.",
+      "One rep about what was just built, or the one the user asked for by handle. Call once after a task finishes, never mid-task. Returns a block to print verbatim, or nothing. Never solve or hint at it.",
     inputSchema: {
       type: "object",
       properties: {

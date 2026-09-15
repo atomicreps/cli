@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.0.12
+
+- `npx atomicreps connect --pin` writes the launch args with the installed version spelled out (`atomicreps@0.0.12`, not bare `atomicreps`), so an organisation can commit one reviewed command instead of trusting npx to fetch the same thing twice. Plain `connect` is unchanged.
+- The setup wizard now offers to answer through your editor's own dialog instead of the chat, once a real session has shown your editor supports it. Off by default, since it blocks the turn until you answer the popup.
+- SECURITY.md now says what the server keeps against your account, how to export or delete it, and what a tutor running a class seat can see.
+
+## 0.0.11
+
+- Your agent is no longer offered a question it cannot have. While a rep is waiting for your letter, and while the door is off, muted, or has spent the day's budget, the tool is simply not on the list, and it comes back on its own the moment the wait is over. Before this, the agent would ask, get nothing, and you paid for the round trip.
+- An editor can now follow your day's counts and streak as they change, instead of asking again and again.
+
 ## 0.0.10
 
 - Loop's face is redrawn. Much bigger eyes, each with a catchlight in it rather than a flat dark slot, and a mouth about half the width it was. His cheeks show now. He has brows, so the face he pulls when you break something is a face and not a pair of dashes. Asleep, his eyes land on his head instead of hovering above it.
