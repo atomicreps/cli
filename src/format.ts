@@ -45,11 +45,35 @@ export const MAX_BLOCK_BYTES = 8 * 1024;
 
 export const BLOCK_HEADER = `${REP_MARK} **Atomic Reps · `;
 
-export function topicOfBlock(text: string): string | undefined {
-  const header = text.split("\n")[0] ?? "";
-  if (!header.startsWith(BLOCK_HEADER)) return undefined;
-  const named = header.slice(BLOCK_HEADER.length).replace(/\*+$/, "").trim();
-  return named === "" ? undefined : named;
+const OPTION_LINE = /^([A-D])\. (.+)$/;
+
+export function partsOfBlock(text: string): {
+  stem: string | undefined;
+  options: ReadonlyArray<{ letter: string; text: string }>;
+} {
+  const lines = text.split("\n");
+  const rule = lines.findIndex((line) => line.startsWith("──"));
+  let stem: string | undefined;
+  let fenced = false;
+  const options: Array<{ letter: string; text: string }> = [];
+  for (const line of rule === -1 ? [] : lines.slice(rule + 1)) {
+    if (line.startsWith("```")) {
+      fenced = !fenced;
+      continue;
+    }
+    if (fenced) continue;
+    const option = OPTION_LINE.exec(line);
+    if (option?.[1] !== undefined && option[2] !== undefined) {
+      options.push({ letter: option[1], text: option[2] });
+      continue;
+    }
+    if (stem === undefined && line.trim() !== "" && options.length === 0) stem = line.trim();
+  }
+  return { stem, options };
+}
+
+export function verdictLineOf(text: string): string {
+  return (text.split("\n")[0] ?? "").replaceAll("**", "").trim();
 }
 
 const FENCE_LINE = /^```/;

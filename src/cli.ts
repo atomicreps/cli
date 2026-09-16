@@ -80,9 +80,11 @@ async function main(raw: string[]): Promise<number> {
       }
       return 0;
     }
-    case "statusline":
-      process.stdout.write(`${statusLine()}\n`);
+    case "statusline": {
+      const line = statusLine();
+      if (line !== "") process.stdout.write(`${line}\n`);
       return 0;
+    }
     case "version":
     case "--version":
     case "-v":

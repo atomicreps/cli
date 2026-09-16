@@ -4,124 +4,128 @@ import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const ESC = String.fromCharCode(27);
+import type { StoredRep } from "../src/types.js";
 
 let configHome: string;
 
-const BLOCK =
-  "⚛ **Atomic Reps · Testing Strategies**\n──────────────────────────\nWhich runner?\n\nA. One\nB. Two\n\n_From memory. Reply with a letter._";
+const BLOCK = [
+  "⚛ **Atomic Reps · Testing Strategies**",
+  "──────────────────────────",
+  "What does toHaveBeenLastCalledWith check?",
+  "",
+  "```",
+  "expect(log).toHaveBeenLastCalledWith('third');",
+  "```",
+  "",
+  "A. That the function was called at least once with those arguments",
+  "B. That the mock's most recent call used the given arguments",
+  "C. That the function returned the specified value on its last call",
+  "D. That only the last test in the suite called the function",
+  "",
+  "_From memory. Reply with a letter._",
+].join("\n");
+
+const VERDICT =
+  "✅ **Right** · The mock's most recent call is the one checked\n──────────────────────────\nMore words.\n\n_Streak: 5 days._";
 
 beforeEach(() => {
   configHome = mkdtempSync(join(tmpdir(), "atomicreps-status-"));
   process.env.XDG_CONFIG_HOME = configHome;
-  delete process.env.NO_COLOR;
   delete process.env.COLUMNS;
-  process.env.TERM = "xterm-256color";
   vi.resetModules();
 });
 
 afterEach(() => {
   delete process.env.COLUMNS;
-  delete process.env.NO_COLOR;
 });
 
-function seedPending(text = BLOCK, id = "q7"): void {
+function seedReps(reps: StoredRep[]): void {
   const dir = join(configHome, "atomicreps");
   mkdirSync(dir, { recursive: true });
-  writeFileSync(
-    join(dir, "reps.json"),
-    JSON.stringify({
-      reps: [
-        { id, topicSlug: "testing_strategies", handle: "testing.unit", text, servedAt: 1_000 },
-      ],
-    }),
-  );
+  writeFileSync(join(dir, "reps.json"), JSON.stringify({ reps }));
+}
+
+const NOW = 1_700_000_000_000;
+
+function pending(servedAt = NOW - 60_000): StoredRep {
+  return {
+    id: "q7",
+    topicSlug: "testing_strategies",
+    handle: "testing.unit",
+    text: BLOCK,
+    servedAt,
+  };
 }
 
 async function load() {
   const statusline = await import("../src/statusline.js");
   const config = await import("../src/config.js");
-  const constants = await import("../src/constants.js");
-  return { statusline, config, constants };
+  config.writeConfig({ token: "arep_test" });
+  return { statusline, config };
 }
 
-describe("the status line while a rep is open", () => {
-  it("names the topic the block named and links the web answer to that rep", async () => {
-    const { statusline, config, constants } = await load();
-    config.writeConfig({ token: "arep_test" });
-    seedPending();
-
-    const line = statusline.statusLine(2_000);
-    expect(line).toContain("rep open");
-    expect(line).toContain("Testing Strategies");
-    expect(line).toContain("reply A-D");
-    expect(line, "OSC 8, so the words are what shows").toContain(
-      `${ESC}]8;;${constants.DEFAULT_SITE}/r/q7`,
+describe("an open rep", () => {
+  it("is the question itself: the stem, then the options cut to their first clause", async () => {
+    seedReps([pending()]);
+    const { statusline } = await load();
+    const rows = statusline.statusLine(NOW).split("\n");
+    expect(rows[0]).toBe("⚛ What does toHaveBeenLastCalledWith check?");
+    expect(rows[1], "the word all four open with is dropped").toContain(
+      "A the function was called",
     );
-    expect(line).toContain("answer on the web");
+    expect(rows[2]).toContain(" · D only the last test");
+    expect(rows[1]).not.toContain("That");
+    expect(rows, "two options per row at a hundred columns").toHaveLength(3);
   });
 
-  it("falls back to what this machine knows the rep by when the block has no header", async () => {
-    const { statusline, config } = await load();
-    config.writeConfig({ token: "arep_test" });
-    seedPending("nothing shaped like a block at all");
-
-    expect(statusline.statusLine(2_000)).toContain("testing.unit");
-  });
-
-  it("writes no escape at all when the terminal refuses colour", async () => {
-    const { statusline, config } = await load();
-    config.writeConfig({ token: "arep_test" });
-    seedPending();
-    process.env.NO_COLOR = "1";
-
-    const line = statusline.statusLine(2_000);
-    expect(line).not.toContain(ESC);
-    expect(line, "the question is still named").toContain("Testing Strategies");
+  it("never lets a row past the width, and the code in the block is not the stem", async () => {
+    seedReps([pending()]);
+    process.env.COLUMNS = "60";
+    const { statusline } = await load();
+    const rows = statusline.statusLine(NOW).split("\n");
+    for (const row of rows) expect(row.length, row).toBeLessThanOrEqual(60);
+    expect(rows[1]).toMatch(/^ {2}A .*… · B .*…$/);
+    expect(statusline.statusLine(NOW)).not.toContain("expect(log)");
   });
 });
 
-describe("the width the terminal says it has", () => {
-  it("drops whole segments off the end rather than cut a word or an escape", async () => {
+describe("after the letter", () => {
+  it("keeps the verdict's first line up for a while, with the day beside it", async () => {
+    seedReps([{ ...pending(), answeredAt: NOW - 60_000, correct: true, verdict: VERDICT }]);
     const { statusline, config } = await load();
-    config.writeConfig({ token: "arep_test" });
-    seedPending();
+    config.updateConfig({ nextEligibleAt: NOW + 20 * 60_000 });
+    const line = statusline.statusLine(NOW);
+    expect(line).toContain("✅ Right · The mock's most recent call is the one checked");
+    expect(line).not.toContain("**");
+    expect(line).toContain("1 today");
+  });
 
-    process.env.COLUMNS = "40";
-    const narrow = statusline.statusLine(2_000);
-    expect(narrow, "the link goes first").not.toContain("answer on the web");
-    expect(narrow).not.toContain(ESC);
-    expect(narrow).toBe("(•_•)? rep open · Testing Strategies");
-
-    process.env.COLUMNS = "20";
-    expect(statusline.statusLine(2_000)).toBe("(•_•)? rep open");
-
-    process.env.COLUMNS = "not a number";
-    expect(statusline.statusLine(2_000), "an unreadable width is no width").toContain(
-      "answer on the web",
-    );
+  it("lets the verdict go once its time is up", async () => {
+    seedReps([{ ...pending(), answeredAt: NOW - 11 * 60_000, correct: true, verdict: VERDICT }]);
+    const { statusline } = await load();
+    expect(statusline.statusLine(NOW)).not.toContain("Right");
   });
 });
 
-describe("the line with no rep open", () => {
-  it("says when the next one opens, on the machine's own clock", async () => {
+describe("with nothing open", () => {
+  it("says when the door opens and how the day stands", async () => {
+    seedReps([
+      {
+        ...pending(NOW - 3 * 60 * 60_000),
+        answeredAt: NOW - 3 * 60 * 60_000,
+        correct: false,
+        verdict: VERDICT,
+      },
+    ]);
     const { statusline, config } = await load();
-    const clock = await import("../src/clock.js");
-    const now = 1_700_000_000_000;
-    config.writeConfig({ token: "arep_test", nextEligibleAt: now + 20 * 60_000 });
-
-    const line = statusline.statusLine(now);
-    expect(line).toContain(clock.hhmm(now + 20 * 60_000));
-    expect(line).toMatch(/\d\d:\d\d/);
+    config.updateConfig({ nextEligibleAt: NOW + 20 * 60_000 });
+    const { hhmm } = await import("../src/clock.js");
+    expect(statusline.statusLine(NOW)).toBe(`⚛ next rep ${hhmm(NOW + 20 * 60_000)} · 1 today`);
   });
 
-  it("says a rep is ready once the clock has run out, and asks for a sign-in without a token", async () => {
-    const { statusline, config } = await load();
-    const now = 1_700_000_000_000;
-    config.writeConfig({ token: "arep_test", nextEligibleAt: now - 1 });
-    expect(statusline.statusLine(now)).toContain("rep ready");
-
-    config.writeConfig({});
-    expect(statusline.statusLine(now)).toContain("not signed in");
+  it("says nothing at all when there is nothing to say", async () => {
+    seedReps([]);
+    const { statusline } = await load();
+    expect(statusline.statusLine(NOW)).toBe("");
   });
 });

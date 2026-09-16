@@ -235,7 +235,7 @@ export function agentTargets(pin = false): readonly AgentTarget[] {
       label: "…and a Claude Code status line",
       hint: tilde(claudeSettingsPath()),
       detail:
-        "One row under the prompt: whether a rep is open, on what, and a link to answer it. A status line you already have keeps printing first and ours becomes a second row; nothing else in the file changes.",
+        "The open question under the prompt, options and all, so a letter is one keystroke away. A status line you already have keeps printing first and ours comes under it; nothing else in the file changes.",
       found: () => claudeAvailable(),
       done: () => statusLineWired(claudeSettingsPath()),
       apply: () => wireStatusLine(claudeSettingsPath()),

@@ -5,6 +5,7 @@ import {
   readFileSync,
   renameSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 
@@ -32,13 +33,22 @@ function scratch(path: string): Disposable {
   };
 }
 
+function existingMode(path: string): number | undefined {
+  try {
+    return statSync(path).mode & 0o777;
+  } catch {
+    return undefined;
+  }
+}
+
 export function writeFileAtomic(path: string, text: string, mode?: number): void {
   const temporary = `${path}.${process.pid}.tmp`;
   using _temp = scratch(temporary);
-  writeFileSync(temporary, text, mode === undefined ? {} : { mode });
-  if (mode !== undefined) {
+  const keep = mode ?? existingMode(path);
+  writeFileSync(temporary, text, keep === undefined ? {} : { mode: keep });
+  if (keep !== undefined) {
     try {
-      chmodSync(temporary, mode);
+      chmodSync(temporary, keep);
     } catch {
     }
   }

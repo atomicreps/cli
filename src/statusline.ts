@@ -1,60 +1,93 @@
-import { escapesRefused, visibleWidth } from "./ansi.js";
+import { visibleWidth } from "./ansi.js";
 import * as clock from "./clock.js";
-import { readConfig, siteOrigin } from "./config.js";
-import { ESC } from "./constants.js";
-import { topicOfBlock } from "./format.js";
-import { pendingRep, streakForStatus } from "./store.js";
+import { readConfig } from "./config.js";
+import { VERDICT_SHOWN_MS } from "./constants.js";
+import { partsOfBlock, verdictLineOf } from "./format.js";
+import { listReps, pendingRep, streakForStatus } from "./store.js";
 
-const FACE_READY = "(•‿•)";
-const FACE_PENDING = "(•_•)?";
-const FACE_QUIET = "(-_-)";
-
+const MARK = "⚛";
 const DOT = " · ";
-const GAP = "  ";
-const BEL = "";
+const DEFAULT_COLUMNS = 100;
+const MIN_OPTION_WIDTH = 8;
+const FULL_ROW_OPTION_WIDTH = 24;
 
-function hyperlink(url: string, text: string): string {
-  return `${ESC}]8;;${url}${BEL}${text}${ESC}]8;;${BEL}`;
-}
-
-function columnsOf(): number | null {
+function columnsOf(): number {
   const columns = Number.parseInt(process.env.COLUMNS ?? "", 10);
-  return Number.isInteger(columns) && columns > 0 ? columns : null;
+  return Number.isInteger(columns) && columns > 0 ? columns : DEFAULT_COLUMNS;
 }
 
-function fit(segments: readonly string[], columns: number | null): string {
-  const kept = [...segments];
-  if (columns === null) return kept.join("");
-  while (kept.length > 1 && visibleWidth(kept.join("")) > columns) kept.pop();
-  return kept.join("");
+function cut(text: string, width: number): string {
+  if (width <= 0) return "";
+  if (visibleWidth(text) <= width) return text;
+  return `${text.slice(0, Math.max(0, width - 1)).trimEnd()}…`;
+}
+
+function clause(text: string): string {
+  const first = /^[^,;:(]+/.exec(text)?.[0] ?? text;
+  return first.replaceAll("`", "").trim();
+}
+
+function sharedOpening(texts: readonly string[]): number {
+  const words = texts.map((t) => t.split(" "));
+  let shared = 0;
+  while (words.every((w) => w.length > shared + 1 && w[shared] === words[0]?.[shared])) shared += 1;
+  return shared;
+}
+
+function optionRows(
+  options: ReadonlyArray<{ letter: string; text: string }>,
+  columns: number,
+): string[] {
+  const clauses = options.map((o) => clause(o.text));
+  const skip = sharedOpening(clauses);
+  const texts = clauses.map((c) => c.split(" ").slice(skip).join(" "));
+  const indent = "  ";
+  const widthFor = (perRow: number): number =>
+    Math.floor((columns - indent.length - DOT.length * (perRow - 1) - perRow * 2) / perRow);
+  const perRow = widthFor(options.length) >= FULL_ROW_OPTION_WIDTH ? options.length : 2;
+  const each = Math.max(MIN_OPTION_WIDTH, widthFor(perRow));
+  const cells = options.map((o, i) => `${o.letter} ${cut(texts[i] ?? "", each)}`);
+  const rows: string[] = [];
+  for (let at = 0; at < cells.length; at += perRow) {
+    rows.push(indent + cells.slice(at, at + perRow).join(DOT));
+  }
+  return rows;
+}
+
+function dayParts(now: clock.EpochMs, nextEligibleAt: clock.EpochMs | undefined): string[] {
+  const today = listReps().filter((r) => clock.sameLocalDay(r.servedAt, now)).length;
+  const streak = streakForStatus(now);
+  return [
+    ...(nextEligibleAt !== undefined && nextEligibleAt > now
+      ? [`next rep ${clock.hhmm(nextEligibleAt)}`]
+      : []),
+    ...(today > 0 ? [`${String(today)} today`] : []),
+    ...(streak === null ? [] : [`streak ${String(streak)}`]),
+  ];
+}
+
+function row(parts: readonly string[], columns: number): string {
+  return parts.length === 0 ? "" : cut(`${MARK} ${parts.join(DOT)}`, columns);
 }
 
 export function statusLine(now = clock.now()): string {
   const config = readConfig();
+  if (!config.token) return `${MARK} atomicreps: not signed in`;
   const columns = columnsOf();
-  if (!config.token) return `${FACE_QUIET} atomicreps: not signed in`;
-  const streak = streakForStatus(now);
-  const streakPart = streak === null ? [] : [`${GAP}streak ${String(streak)}`];
   const pending = pendingRep(now);
   if (pending) {
-    const topic = topicOfBlock(pending.text) ?? pending.handle ?? pending.topicSlug;
-    const web = `${siteOrigin()}/r/${pending.id}`;
-    return fit(
-      [
-        `${FACE_PENDING} rep open`,
-        ...(topic === "" ? [] : [`${DOT}${topic}`]),
-        ...(escapesRefused() ? [] : [`${GAP}${hyperlink(web, "answer on the web")}`]),
-        `${DOT}reply A-D`,
-        ...streakPart,
-      ],
-      columns,
-    );
+    const { stem, options } = partsOfBlock(pending.text);
+    const rows = [cut(`${MARK} ${stem ?? pending.handle ?? pending.topicSlug}`, columns)];
+    rows.push(...optionRows(options, columns));
+    return rows.join("\n");
   }
-  if (config.nextEligibleAt !== undefined && config.nextEligibleAt > now) {
-    return fit(
-      [`${FACE_QUIET} next rep at ${clock.hhmm(config.nextEligibleAt)}`, ...streakPart],
-      columns,
-    );
-  }
-  return fit([`${FACE_READY} rep ready`, ...streakPart], columns);
+  const day = dayParts(now, config.nextEligibleAt);
+  const last = listReps().at(-1);
+  const verdict =
+    last?.answeredAt !== undefined &&
+    last.verdict !== undefined &&
+    now - last.answeredAt <= VERDICT_SHOWN_MS
+      ? [verdictLineOf(last.verdict)]
+      : [];
+  return row([...verdict, ...day], columns);
 }

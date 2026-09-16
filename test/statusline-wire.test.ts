@@ -1,8 +1,11 @@
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { existsSync, mkdtempSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import { readJsonFile } from "../src/files.js";
 
 let claudeHome: string;
 let SETTINGS: string;
@@ -19,14 +22,14 @@ afterEach(() => {
   delete process.env.CLAUDE_CONFIG_DIR;
 });
 
-const OURS = '"/usr/bin/node" "/x/cli.js" statusline || npx -y atomicreps statusline';
+const OURS = "printf ours || npx -y atomicreps statusline";
 
 function settings(): Record<string, unknown> {
-  return JSON.parse(readFileSync(join(claudeHome, "settings.json"), "utf8"));
+  return readJsonFile<Record<string, unknown>>(SETTINGS) ?? {};
 }
 
 function seed(value: Record<string, unknown>): void {
-  writeFileSync(join(claudeHome, "settings.json"), JSON.stringify(value));
+  writeFileSync(SETTINGS, JSON.stringify(value));
 }
 
 describe("wireStatusLine", () => {
@@ -43,20 +46,17 @@ describe("wireStatusLine", () => {
     expect(statusLineWired(SETTINGS)).toBe(true);
   });
 
-  it("keeps a custom command as the first row of a wrapper and ours as the second", async () => {
-    seed({ statusLine: { type: "command", command: "bash ~/mine.sh", padding: 2 } });
+  it("keeps a custom command as the first row and ours as the second, each on its own line", async () => {
+    seed({ statusLine: { type: "command", command: "printf mine", padding: 2 } });
     const { wireStatusLine, statusLineWired, statusLineWrapperPath } =
       await import("../src/statusline-wire.js");
     expect(wireStatusLine(SETTINGS, OURS).state).toBe("done");
     const wrapper = statusLineWrapperPath();
-    expect(existsSync(wrapper)).toBe(true);
-    const lines = readFileSync(wrapper, "utf8").split("\n");
-    expect(lines.findIndex((l) => l.includes("bash ~/mine.sh"))).toBeLessThan(
-      lines.findIndex((l) => l.includes(OURS)),
-    );
     const line = settings().statusLine as Record<string, unknown>;
     expect(line.command).toBe(`sh "${wrapper}"`);
     expect(line.padding).toBe(2);
+    const rows = execFileSync("sh", [wrapper], { input: "{}", encoding: "utf8" });
+    expect(rows).toBe("mine\nours");
     expect(statusLineWired(SETTINGS)).toBe(true);
     expect(wireStatusLine(SETTINGS, OURS).says).toBe("already in place");
   });
@@ -72,10 +72,10 @@ describe("wireStatusLine", () => {
   });
 
   it("refuses a settings file it cannot parse rather than replacing it", async () => {
-    writeFileSync(join(claudeHome, "settings.json"), "{ not json");
+    writeFileSync(SETTINGS, "{ not json");
     const { wireStatusLine } = await import("../src/statusline-wire.js");
     expect(wireStatusLine(SETTINGS, OURS).state).toBe("failed");
-    expect(readFileSync(join(claudeHome, "settings.json"), "utf8")).toBe("{ not json");
+    expect(statSync(SETTINGS).size).toBe("{ not json".length);
   });
 });
 
