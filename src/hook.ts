@@ -188,12 +188,11 @@ function upgradeLine(client: ClientState | undefined): string {
   return `\n\n${tint(`  atomicreps ${running} → ${latest}. Restart your editor to pick it up.${where}`, "dim")}`;
 }
 
-async function fetchRep(cwd: string, now: clock.EpochMs): Promise<HookOutput | null> {
-  const { hints, mark } = await inferSession(cwd, INFER_BUDGET_MS, cachedGrammar());
-  if (mark !== null && mark === readConfig().lastPushTouch) return null;
-  if (allMuted(hints.touched, cachedMuteKeys(now))) return null;
-  const result = await api.rep({ hints, kind: "auto" }, HOOK_DEADLINE_MS);
-  if (!result.ok) updateConfig({ nextEligibleAt: now + DEGRADED_BACKOFF_MS });
+function printServed(
+  result: ApiResult<ToolReply>,
+  mark: string | null,
+  now: clock.EpochMs,
+): HookOutput | null {
   const block = servedBlock(result, now);
   if (block === null) return null;
   if (mark !== null) updateConfig({ lastPushTouch: mark });
@@ -203,6 +202,36 @@ async function fetchRep(cwd: string, now: clock.EpochMs): Promise<HookOutput | n
       upgradeLine(result.ok ? result.value.client : undefined),
     ),
   };
+}
+
+async function fetchRep(cwd: string, now: clock.EpochMs): Promise<HookOutput | null> {
+  const { hints, mark } = await inferSession(cwd, INFER_BUDGET_MS, cachedGrammar());
+  if (mark !== null && mark === readConfig().lastPushTouch) return null;
+  if (allMuted(hints.touched, cachedMuteKeys(now))) return null;
+  const result = await api.rep({ hints, kind: "auto" }, HOOK_DEADLINE_MS);
+  if (!result.ok) updateConfig({ nextEligibleAt: now + DEGRADED_BACKOFF_MS });
+  return printServed(result, mark, now);
+}
+
+async function remindRep(
+  rep: StoredRep,
+  cwd: string,
+  now: clock.EpochMs,
+): Promise<HookOutput | null> {
+  const { hints, mark } = await inferSession(cwd, INFER_BUDGET_MS, cachedGrammar());
+  const result = await api.rep({ hints, kind: "auto", pending: rep.id }, HOOK_DEADLINE_MS);
+  if (!result.ok) {
+    updateConfig({ nextEligibleAt: now + DEGRADED_BACKOFF_MS });
+    return null;
+  }
+  const data = result.value.data ?? {};
+  if (data.kind === "open") {
+    observeClient(result.value.client, now);
+    noteReprinted(rep.id, now);
+    return { systemMessage: hostSystemMessage(rep.text, "") };
+  }
+  noteResolvedElsewhere(rep.id, now);
+  return printServed(result, mark, now);
 }
 
 export type HookState = {
@@ -217,7 +246,7 @@ export type HookAction =
   | { kind: "quiet" }
   | { kind: "grade"; id: string; pick: Pick; sure?: boolean }
   | { kind: "take"; handle: string }
-  | { kind: "remind"; rep: StoredRep }
+  | { kind: "remind"; rep: StoredRep; cwd: string }
   | { kind: "push"; cwd: string };
 
 function decideStop(input: HookInput, state: HookState, now: clock.EpochMs): HookAction {
@@ -226,9 +255,10 @@ function decideStop(input: HookInput, state: HookState, now: clock.EpochMs): Hoo
   if (state.nextEligibleAt !== undefined && clock.locallyQuiet(state.nextEligibleAt, now)) {
     return { kind: "ignore" };
   }
+  const cwd = input.cwd ?? process.cwd();
   const pending = state.pending;
-  if (pending && (pending.shown ?? 0) < REMIND_LIMIT) return { kind: "remind", rep: pending };
-  return { kind: "push", cwd: input.cwd ?? process.cwd() };
+  if (pending && (pending.shown ?? 0) < REMIND_LIMIT) return { kind: "remind", rep: pending, cwd };
+  return { kind: "push", cwd };
 }
 
 export function decide(input: HookInput, state: HookState, now: clock.EpochMs): HookAction {
@@ -267,8 +297,7 @@ export async function perform(action: HookAction, now: clock.EpochMs): Promise<H
     case "grade":
       return await gradeLetter(action.pick, action.id, now, action.sure);
     case "remind":
-      noteReprinted(action.rep.id, now);
-      return { systemMessage: hostSystemMessage(action.rep.text, "") };
+      return await remindRep(action.rep, action.cwd, now);
     case "take":
       return await handOver(
         await api.rep({ ask: action.handle }, HOOK_DEADLINE_MS),

@@ -2,7 +2,7 @@
 
 ## 0.0.13
 
-- A rep you did not get to is put back on the screen at the end of your next turn, twice, and then steps aside for a fresh one. Before this, one question you scrolled past took every later question with it for four hours.
+- A rep you did not get to is put back on the screen at the end of your next turn, twice, and then steps aside for a fresh one. Before this, one question you scrolled past took every later question with it for four hours. Before it says a rep again, the hook checks with the server, so a rep you answered on the web link or in another editor is closed here too and the next one comes in its place.
 - The status line now shows the question waiting on you: the stem on one row and the four options under it, cut to the width your terminal reports, so a letter is one keystroke away however far the block has scrolled. After you answer it keeps the verdict up for ten minutes, and with nothing open it says when the next rep comes and how your day stands, or nothing at all.
 - `npx atomicreps connect` offers to put that status line into Claude Code for you. A status line you already have keeps printing first and ours becomes a second row. It runs the installed copy directly rather than through npx, so it keeps up with Claude Code's refresh.
 

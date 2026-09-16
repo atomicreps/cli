@@ -84,6 +84,7 @@ export type RepRequest = {
   readonly kind?: RepKind;
   readonly exclude?: string;
   readonly lane?: Extract<RepLane, "asked">;
+  readonly pending?: string;
 };
 
 export type Show = "summary" | "skills" | "reps" | "streak" | "mutes";

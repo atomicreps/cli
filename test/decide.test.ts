@@ -67,7 +67,7 @@ const CASES: ReadonlyArray<
     "a Stop never grades, even one whose last message is a letter",
     stopped("B"),
     given({ pending: served() }),
-    { kind: "remind", rep: served() },
+    { kind: "remind", rep: served(), cwd: "/repo" },
   ],
   [
     "a Stop with no token is nothing, never the quiet line",
@@ -163,7 +163,7 @@ const CASES: ReadonlyArray<
     "an unanswered rep is said again rather than silencing the turn",
     stopped(),
     given({ pending: served() }),
-    { kind: "remind", rep: served() },
+    { kind: "remind", rep: served(), cwd: "/repo" },
   ],
   [
     "a rep said its two times gives way to a fresh one, which the next letter grades",

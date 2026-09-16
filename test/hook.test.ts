@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -180,9 +180,7 @@ describe("atomicreps hook", () => {
     expect((config.readConfig().nextEligibleAt ?? 0) > Date.now()).toBe(true);
   });
 
-  it("says an unanswered rep again from local state, without asking the server", async () => {
-    const { hook, config, store } = await load();
-    const { mkdirSync } = await import("node:fs");
+  function holdOpen(id = "q7"): void {
     const dir = join(configHome, "atomicreps");
     mkdirSync(dir, { recursive: true });
     writeFileSync(
@@ -190,7 +188,7 @@ describe("atomicreps hook", () => {
       JSON.stringify({
         reps: [
           {
-            id: "q7",
+            id,
             topicSlug: "react",
             handle: "react.hooks_core",
             text: BLOCK,
@@ -199,12 +197,29 @@ describe("atomicreps hook", () => {
         ],
       }),
     );
+  }
+
+  function doorSaying(data: Record<string, unknown>, text = "") {
+    return vi.fn(
+      async (_url: string, _init?: RequestInit) =>
+        new Response(JSON.stringify({ text, data }), {
+          headers: { "content-type": "application/json" },
+        }),
+    );
+  }
+
+  it("says an unanswered rep again from local state once the server confirms it is still open", async () => {
+    const { hook, config, store } = await load();
+    holdOpen();
     config.writeConfig({ token: "arep_test" });
-    const fetchSpy = vi.fn();
+    const fetchSpy = doorSaying({ kind: "open", id: "q7", nextEligibleAt: Date.now() + 3_600_000 });
     vi.stubGlobal("fetch", fetchSpy);
 
     const out = await hook.runHook(stopIn());
-    expect(fetchSpy, "a reminder is local from start to finish").not.toHaveBeenCalled();
+    expect(fetchSpy, "one request, naming the rep").toHaveBeenCalledTimes(1);
+    const sent = JSON.parse(String(fetchSpy.mock.calls[0]?.[1]?.body));
+    expect(sent.pending).toBe("q7");
+    expect(new URL(String(fetchSpy.mock.calls[0]?.[0])).pathname).toBe("/mcp/rep");
     expect(messageOf(out) ?? "").toContain("Which hook?");
     expect(contextOf(out), "printed to the user, never handed to the agent").toBeUndefined();
     expect(store.listReps().at(-1)?.shown).toBe(1);
@@ -213,6 +228,70 @@ describe("atomicreps hook", () => {
       (config.readConfig().nextEligibleAt ?? 0) > Date.now(),
       "and it is not said again on the very next turn",
     ).toBe(true);
+  });
+
+  it("never says again a rep that was answered on the web: the same reply serves the next one", async () => {
+    const { hook, config, store } = await load();
+    holdOpen();
+    config.writeConfig({ token: "arep_test" });
+    const NEXT = BLOCK.replace("Which hook?", "Which ref?");
+    const fetchSpy = doorSaying(
+      {
+        kind: "question",
+        id: "q8",
+        topicSlug: "react",
+        topicSource: "touched",
+        gated: null,
+        nextEligibleAt: Date.now() + 3_600_000,
+        lane: "pushed",
+        handle: "react.hooks_core",
+        offer: [],
+      },
+      NEXT,
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const out = await hook.runHook(stopIn());
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(messageOf(out) ?? "", "the new rep is what prints").toContain("Which ref?");
+    expect(messageOf(out) ?? "").not.toContain("Which hook?");
+    const [old, fresh] = store.listReps();
+    expect(old?.id).toBe("q7");
+    expect(old?.answeredAt, "closed here too, so it is never reminded again").toBeDefined();
+    expect(old?.shown ?? 0).toBe(0);
+    expect(fresh?.id).toBe("q8");
+    expect(store.pendingRep()?.id, "the next letter grades the new one").toBe("q8");
+  });
+
+  it("closes a web-answered rep even when the server has nothing to follow it with", async () => {
+    const { hook, config, store } = await load();
+    holdOpen();
+    config.writeConfig({ token: "arep_test" });
+    vi.stubGlobal(
+      "fetch",
+      doorSaying({ kind: "quiet", reason: "gap", nextEligibleAt: Date.now() + 3_600_000 }),
+    );
+
+    expect(await hook.runHook(stopIn()), "nothing to print").toBeNull();
+    expect(store.pendingRep(), "and nothing left to remind").toBeUndefined();
+    expect(store.listReps().at(-1)?.answeredAt).toBeDefined();
+  });
+
+  it("prints nothing on a reminder the server could not confirm, and backs off", async () => {
+    const { hook, config, store } = await load();
+    holdOpen();
+    config.writeConfig({ token: "arep_test" });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new TypeError("fetch failed");
+      }),
+    );
+
+    expect(await hook.runHook(stopIn())).toBeNull();
+    expect(store.listReps().at(-1)?.shown ?? 0, "a guess is not a reminder").toBe(0);
+    expect(store.pendingRep()?.id, "still open as far as this machine knows").toBe("q7");
+    expect((config.readConfig().nextEligibleAt ?? 0) > Date.now()).toBe(true);
   });
 
   it("grades a single letter against the pending rep and hands the verdict over", async () => {
@@ -368,7 +447,6 @@ describe("atomicreps hook", () => {
 
   it("opens no socket when everything the session touched is muted", async () => {
     const { hook, config, store } = await load();
-    const { mkdirSync } = await import("node:fs");
     const { join: joinPath } = await import("node:path");
     config.writeConfig({ token: "arep_test" });
     store.writeStatusCache({ muteKeys: ["docker"] });
