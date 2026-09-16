@@ -43,7 +43,14 @@ export const FALLBACK_INSTRUCTIONS = [
 
 export const MAX_BLOCK_BYTES = 8 * 1024;
 
-const BLOCK_HEADER = `${REP_MARK} **Atomic Reps · `;
+export const BLOCK_HEADER = `${REP_MARK} **Atomic Reps · `;
+
+export function topicOfBlock(text: string): string | undefined {
+  const header = text.split("\n")[0] ?? "";
+  if (!header.startsWith(BLOCK_HEADER)) return undefined;
+  const named = header.slice(BLOCK_HEADER.length).replace(/\*+$/, "").trim();
+  return named === "" ? undefined : named;
+}
 
 const FENCE_LINE = /^```/;
 const HEADER_LINE = /^⚛ \*\*(.*)\*\*$/;

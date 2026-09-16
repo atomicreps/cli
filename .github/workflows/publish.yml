@@ -20,8 +20,11 @@ jobs:
           registry-url: 'https://registry.npmjs.org'
       - run: npm install
       - run: npm run typecheck
-      - run: npm test
+      # Build BEFORE test: dist/ is gitignored, so a fresh checkout has
+      # no bundle, and stdio.test.ts spawns dist/cli.js. Testing first
+      # passes on a laptop with a stale dist and fails only in CI.
       - run: npm run build
+      - run: npm test
       - name: The tag and the manifest must name one version
         if: startsWith(github.ref, 'refs/tags/v')
         run: |

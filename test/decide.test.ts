@@ -14,6 +14,10 @@ function served(id = "q1"): StoredRep {
   return { id, topicSlug: "react", text: "a block", servedAt: NOW - 10_000 };
 }
 
+function reprinted(shown: number): StoredRep {
+  return { ...served(), shown };
+}
+
 function given(patch: Partial<HookState> = {}): HookState {
   return { hasToken: true, nextEligibleAt: undefined, pending: undefined, offer: [], ...patch };
 }
@@ -63,7 +67,7 @@ const CASES: ReadonlyArray<
     "a Stop never grades, even one whose last message is a letter",
     stopped("B"),
     given({ pending: served() }),
-    { kind: "ignore" },
+    { kind: "remind", rep: served() },
   ],
   [
     "a Stop with no token is nothing, never the quiet line",
@@ -156,9 +160,27 @@ const CASES: ReadonlyArray<
     { kind: "push", cwd: "/repo" },
   ],
   [
-    "an unanswered rep is nothing even with the clock spent",
+    "an unanswered rep is said again rather than silencing the turn",
     stopped(),
     given({ pending: served() }),
+    { kind: "remind", rep: served() },
+  ],
+  [
+    "a rep said its two times gives way to a fresh one, which the next letter grades",
+    stopped(),
+    given({ pending: reprinted(2) }),
+    { kind: "push", cwd: "/repo" },
+  ],
+  [
+    "a reminder waits on the quiet clock like everything else",
+    stopped(),
+    given({ pending: served(), nextEligibleAt: NOW + 60_000 }),
+    { kind: "ignore" },
+  ],
+  [
+    "a reminder is not a grade: a Stop with no token still gets nothing",
+    stopped(),
+    given({ hasToken: false, pending: served() }),
     { kind: "ignore" },
   ],
   [

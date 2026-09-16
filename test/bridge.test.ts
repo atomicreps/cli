@@ -149,7 +149,8 @@ describe("the stdio bridge", () => {
   });
 
   it("notes a client's declared elicitation support for the setup wizard, legacy and modern both", async () => {
-    const discover = () => fakeDoor((body) => (body.method === "server/discover" ? DISCOVER : TOOLS));
+    const discover = () =>
+      fakeDoor((body) => (body.method === "server/discover" ? DISCOVER : TOOLS));
     const { readConfig } = await import("../src/config.js");
 
     const legacy = await bridgeWith(discover());

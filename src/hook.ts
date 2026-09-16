@@ -13,6 +13,7 @@ import {
   HOOK_DEADLINE_MS,
   INFER_BUDGET_MS,
   MAX_SHORT_PROMPT_CHARS,
+  REMIND_LIMIT,
 } from "./constants.js";
 import { isRepBlock } from "./format.js";
 import { inferSession } from "./infer.js";
@@ -21,6 +22,7 @@ import {
   cachedGrammarVersion,
   cachedMuteKeys,
   ensureGrammar,
+  noteReprinted,
   observeClient,
   observeRep,
   observeVerdict,
@@ -207,6 +209,7 @@ export type HookAction =
   | { kind: "quiet" }
   | { kind: "grade"; id: string; pick: Pick; sure?: boolean }
   | { kind: "take"; handle: string }
+  | { kind: "remind"; rep: StoredRep }
   | { kind: "push"; cwd: string };
 
 function decideStop(input: HookInput, state: HookState, now: clock.EpochMs): HookAction {
@@ -215,7 +218,8 @@ function decideStop(input: HookInput, state: HookState, now: clock.EpochMs): Hoo
   if (state.nextEligibleAt !== undefined && clock.locallyQuiet(state.nextEligibleAt, now)) {
     return { kind: "ignore" };
   }
-  if (state.pending) return { kind: "ignore" };
+  const pending = state.pending;
+  if (pending && (pending.shown ?? 0) < REMIND_LIMIT) return { kind: "remind", rep: pending };
   return { kind: "push", cwd: input.cwd ?? process.cwd() };
 }
 
@@ -254,6 +258,9 @@ export async function perform(action: HookAction, now: clock.EpochMs): Promise<H
       return quiet();
     case "grade":
       return await gradeLetter(action.pick, action.id, now, action.sure);
+    case "remind":
+      noteReprinted(action.rep.id, now);
+      return { systemMessage: hostSystemMessage(action.rep.text, "") };
     case "take":
       return await handOver(
         await api.rep({ ask: action.handle }, HOOK_DEADLINE_MS),

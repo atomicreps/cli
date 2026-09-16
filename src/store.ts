@@ -12,6 +12,7 @@ import {
   MAX_QUIET_MS,
   OFFER_TTL_MS,
   PENDING_TTL_MS,
+  REMIND_GAP_MS,
   REPS_KEPT,
   STATUS_TTL_MS,
   TOPICS_TTL_MS,
@@ -197,6 +198,12 @@ export function observeVerdict(
     mergeStatus({ currentStreak: data.currentStreak, streakAt: now }, now);
   const target = id ?? listReps().at(-1)?.id;
   if (target !== undefined) recordAnswered(target, data.correct, text, now, offerOf(data));
+}
+
+export function noteReprinted(id: string, now: number): void {
+  const reps = listReps().map((r) => (r.id === id ? { ...r, shown: (r.shown ?? 0) + 1 } : r));
+  writeJson(FILES.reps, { reps });
+  updateConfig({ nextEligibleAt: now + REMIND_GAP_MS });
 }
 
 export function pendingRep(now = clock.now()): StoredRep | undefined {

@@ -24,9 +24,13 @@ import {
   claudeAddCommand,
   claudeSettingsPath,
   codexAddCommand,
+  copilotAddCommand,
   cursorConfig,
   cursorMcpPath,
   windsurfMcpPath,
+  vscodeAddCommand,
+  vscodeConfig,
+  vscodeMcpPath,
 } from "./connect.js";
 import {
   ART_GUTTER_WIDE,
@@ -64,6 +68,7 @@ import {
   title,
   withLoop,
 } from "./screen.js";
+import { statusLineWired } from "./statusline-wire.js";
 import { ensureGrammar, observeRep, observeVerdict, offerOf, pendingRep } from "./store.js";
 import {
   asPick,
@@ -468,7 +473,15 @@ function manualLines(pin = false): string[] {
       .split("\n")
       .map((line) => `  ${line}`),
     "",
+    "The same entry for GitHub Copilot (VS Code mcp.json, JetBrains, Visual Studio, Xcode, Eclipse):",
+    ...JSON.stringify(vscodeConfig(pin), null, 2)
+      .split("\n")
+      .map((line) => `  ${line}`),
+    "",
     `Claude Code:  ${claudeAddCommand(pin)}`,
+    `VS Code:      ${vscodeAddCommand(pin)}`,
+    `              or ${vscodeMcpPath()}`,
+    `Copilot CLI:  ${copilotAddCommand(pin)}`,
     `Codex:        ${codexAddCommand(pin)}`,
     `Cursor:       ${cursorMcpPath()}`,
     `Windsurf:     ${windsurfMcpPath()}`,
@@ -632,7 +645,7 @@ export async function doctor(): Promise<number> {
   );
   lines.push(
     pending
-      ? `pending rep: ${pending.handle ?? pending.topicSlug} served ${clock.iso(pending.servedAt)} (a letter answers it; no push until it is answered or expires)`
+      ? `pending rep: ${pending.handle ?? pending.topicSlug} served ${clock.iso(pending.servedAt)} (a letter answers it; the hook reminds you twice, then moves on)`
       : "pending rep: none",
   );
   lines.push(
@@ -652,6 +665,11 @@ export async function doctor(): Promise<number> {
       : `claude allowlist: missing ${missing.join(", ")} (run npx atomicreps connect)`,
   );
   lines.push(claudePluginLine());
+  lines.push(
+    statusLineWired(claudeSettingsPath())
+      ? "claude status line: wired"
+      : "claude status line: not wired (run npx atomicreps connect)",
+  );
   lines.push(claudeAvailable() ? "claude cli: found" : "claude cli: not found");
   plain(lines);
   return failures === 0 ? 0 : 1;
@@ -717,7 +735,7 @@ function noteFor(key: string, s: Summary): string {
     case "m":
       return s.muteCount === 0 ? "none" : `${s.muteCount} muted`;
     case "c":
-      return "Claude Code, Cursor, Codex, Windsurf";
+      return "Claude Code, Copilot, Cursor, Codex, Windsurf";
     case "d":
       return "check the connection";
     case "w":

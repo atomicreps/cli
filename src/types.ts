@@ -156,6 +156,7 @@ export type StoredRep = {
   readonly text: string;
   readonly servedAt: EpochMs;
   readonly answeredAt?: EpochMs;
+  readonly shown?: number;
   readonly correct?: boolean;
   readonly verdict?: string;
   readonly offer?: readonly OfferEntry[];

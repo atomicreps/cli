@@ -180,6 +180,41 @@ describe("atomicreps hook", () => {
     expect((config.readConfig().nextEligibleAt ?? 0) > Date.now()).toBe(true);
   });
 
+  it("says an unanswered rep again from local state, without asking the server", async () => {
+    const { hook, config, store } = await load();
+    const { mkdirSync } = await import("node:fs");
+    const dir = join(configHome, "atomicreps");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, "reps.json"),
+      JSON.stringify({
+        reps: [
+          {
+            id: "q7",
+            topicSlug: "react",
+            handle: "react.hooks_core",
+            text: BLOCK,
+            servedAt: Date.now() - 60_000,
+          },
+        ],
+      }),
+    );
+    config.writeConfig({ token: "arep_test" });
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const out = await hook.runHook(stopIn());
+    expect(fetchSpy, "a reminder is local from start to finish").not.toHaveBeenCalled();
+    expect(messageOf(out) ?? "").toContain("Which hook?");
+    expect(contextOf(out), "printed to the user, never handed to the agent").toBeUndefined();
+    expect(store.listReps().at(-1)?.shown).toBe(1);
+    expect(store.pendingRep()?.id, "the same rep, so the same letter answers it").toBe("q7");
+    expect(
+      (config.readConfig().nextEligibleAt ?? 0) > Date.now(),
+      "and it is not said again on the very next turn",
+    ).toBe(true);
+  });
+
   it("grades a single letter against the pending rep and hands the verdict over", async () => {
     const { hook, config, store } = await load();
     config.writeConfig({ token: "arep_test", nextEligibleAt: Date.now() + 60_000 });

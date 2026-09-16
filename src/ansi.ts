@@ -52,6 +52,10 @@ export function setTheme(theme: Theme): void {
   currentTheme = theme;
 }
 
+export function escapesRefused(): boolean {
+  return process.env.NO_COLOR !== undefined || process.env.TERM === "dumb";
+}
+
 function colourAllowed(): boolean {
   if (process.env.NO_COLOR !== undefined) return false;
   if (process.env.FORCE_COLOR !== undefined) return true;
@@ -149,7 +153,7 @@ export function wrap(text: string, width: number): string[] {
 
 export function tint(text: string, ...tones: Tone[]): string {
   if (text === "") return text;
-  if (process.env.NO_COLOR !== undefined || process.env.TERM === "dumb") return text;
+  if (escapesRefused()) return text;
   if (tones.length === 0) return text;
   const codes = codesFor(currentTheme);
   const open = tones.map((t) => `${ESC}[${codes[t]}m`).join("");

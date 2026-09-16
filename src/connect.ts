@@ -6,6 +6,7 @@ import { dirname, join } from "node:path";
 import { isAlpha } from "./config.js";
 import { PROBE_MS, TOOL_NAMES } from "./constants.js";
 import { ensureDir, readJsonFile, writeFileAtomic } from "./files.js";
+import { statusLineWired, wireStatusLine } from "./statusline-wire.js";
 import { isRecord, stringList } from "./types.js";
 import { SERVER_VERSION } from "./version.js";
 
@@ -32,6 +33,17 @@ export function claudeAddCommand(pin = false): string {
 
 export function cursorConfig(pin = false): Record<string, unknown> {
   return { mcpServers: { [serverName()]: { command: "npx", args: bridgeArgs(pin) } } };
+}
+
+export function vscodeConfig(pin = false): Record<string, unknown> {
+  return {
+    servers: { [serverName()]: { type: "stdio", command: "npx", args: bridgeArgs(pin) } },
+  };
+}
+
+export function vscodeAddCommand(pin = false): string {
+  const entry = { name: serverName(), type: "stdio", command: "npx", args: bridgeArgs(pin) };
+  return `code --add-mcp '${JSON.stringify(entry)}'`;
 }
 
 export function claudeSettingsPath(): string {
@@ -89,7 +101,16 @@ export function allowlistMissing(): string[] {
   return toolAllowlist().filter((tool) => !allow.includes(tool));
 }
 
-export type AgentId = "claude" | "allowlist" | "cursor" | "codex" | "windsurf" | "manual";
+export type AgentId =
+  | "claude"
+  | "allowlist"
+  | "statusline"
+  | "vscode"
+  | "copilot"
+  | "cursor"
+  | "codex"
+  | "windsurf"
+  | "manual";
 
 export type Applied = { state: "done" | "noted" | "failed"; says: string };
 
@@ -115,17 +136,33 @@ export function windsurfMcpPath(): string {
   return join(homedir(), ".codeium", "windsurf", "mcp_config.json");
 }
 
-export function mergeMcpJson(path: string, pin = false): Applied {
+export function vscodeUserDir(): string {
+  if (process.platform === "darwin") {
+    return join(homedir(), "Library", "Application Support", "Code", "User");
+  }
+  if (process.platform === "win32") {
+    return join(process.env.APPDATA ?? join(homedir(), "AppData", "Roaming"), "Code", "User");
+  }
+  return join(process.env.XDG_CONFIG_HOME ?? join(homedir(), ".config"), "Code", "User");
+}
+
+export function vscodeMcpPath(): string {
+  return join(vscodeUserDir(), "mcp.json");
+}
+
+export function mergeMcpJson(
+  path: string,
+  pin = false,
+  shape: Record<string, unknown> = cursorConfig(pin),
+): Applied {
   const parsed = readJsonFile<Record<string, unknown>>(path);
   if (parsed === null && existsSync(path)) {
     return { state: "failed", says: `${path} did not parse; add the entry by hand` };
   }
   const base = parsed ?? {};
-  const servers = isRecord(base.mcpServers) ? base.mcpServers : {};
-  const next = {
-    ...base,
-    mcpServers: { ...servers, [serverName()]: { command: "npx", args: bridgeArgs(pin) } },
-  };
+  const [key, entries] = Object.entries(shape)[0] ?? ["mcpServers", {}];
+  const servers = isRecord(base[key]) ? base[key] : {};
+  const next = { ...base, [key]: { ...servers, ...(isRecord(entries) ? entries : {}) } };
   ensureDir(dirname(path));
   writeFileAtomic(path, `${JSON.stringify(next, null, 2)}\n`);
   return { state: "done", says: `added to ${path}` };
@@ -137,6 +174,14 @@ export function codexAddArgs(pin = false): string[] {
 
 export function codexAddCommand(pin = false): string {
   return `codex ${codexAddArgs(pin).join(" ")}`;
+}
+
+export function copilotAddArgs(pin = false): string[] {
+  return ["mcp", "add", serverName(), "--", "npx", ...bridgeArgs(pin)];
+}
+
+export function copilotAddCommand(pin = false): string {
+  return `copilot ${copilotAddArgs(pin).join(" ")}`;
 }
 
 function runCli(
@@ -184,6 +229,40 @@ export function agentTargets(pin = false): readonly AgentTarget[] {
               : `${run.added.length} tools added to ${run.path}`,
         };
       },
+    },
+    {
+      id: "statusline",
+      label: "…and a Claude Code status line",
+      hint: tilde(claudeSettingsPath()),
+      detail:
+        "One row under the prompt: whether a rep is open, on what, and a link to answer it. A status line you already have keeps printing first and ours becomes a second row; nothing else in the file changes.",
+      found: () => claudeAvailable(),
+      done: () => statusLineWired(claudeSettingsPath()),
+      apply: () => wireStatusLine(claudeSettingsPath()),
+    },
+    {
+      id: "vscode",
+      label: "VS Code (Copilot)",
+      hint: tilde(vscodeMcpPath()),
+      detail:
+        "Adds one entry to the servers object of your user mcp.json; anything already in that file stays. Copilot in JetBrains, Visual Studio, Xcode and Eclipse takes the same entry in its own mcp.json.",
+      found: () => existsSync(vscodeUserDir()),
+      apply: () => mergeMcpJson(vscodeMcpPath(), pin, vscodeConfig(pin)),
+    },
+    {
+      id: "copilot",
+      label: "Copilot CLI",
+      hint: "copilot mcp add",
+      detail: `Runs ${copilotAddCommand(pin)}`,
+      found: () => cliAnswers("copilot"),
+      apply: (found) =>
+        runCli(
+          found,
+          "copilot",
+          copilotAddArgs(pin),
+          "registered with Copilot CLI",
+          copilotAddCommand(pin),
+        ),
     },
     {
       id: "cursor",

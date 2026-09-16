@@ -1,13 +1,20 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { setChannel } from "../src/config.js";
 import {
   agentTargets,
   type AgentTarget,
   claudeSettingsPath,
+  mergeMcpJson,
   orderOffers,
   serverName,
+  vscodeConfig,
 } from "../src/connect.js";
+import { readJsonFile } from "../src/files.js";
 
 function offers(
   found: Partial<Record<string, boolean>>,
@@ -35,6 +42,9 @@ describe("which rows are offered", () => {
     expect(orderOffers(offers({})).map((offer) => offer.target.id)).toEqual([
       "claude",
       "allowlist",
+      "statusline",
+      "vscode",
+      "copilot",
       "cursor",
       "windsurf",
       "codex",
@@ -45,7 +55,7 @@ describe("which rows are offered", () => {
 
 describe("a CLI that is not on the path", () => {
   const cliTargets = agentTargets().filter(
-    (target) => target.id === "claude" || target.id === "codex",
+    (target) => target.id === "claude" || target.id === "codex" || target.id === "copilot",
   );
 
   it("hands back the command instead of spawning a binary that is not there", () => {
@@ -62,6 +72,40 @@ describe("a CLI that is not on the path", () => {
         .find((t) => t.id === "codex")
         ?.apply(false).says,
     ).toContain("codex mcp add");
+  });
+});
+
+describe("merging into an editor's MCP file", () => {
+  let dir = "";
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "atomicreps-connect-"));
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("writes under the key the editor reads and keeps the user's other servers", () => {
+    const path = join(dir, "mcp.json");
+    writeFileSync(path, JSON.stringify({ servers: { github: { type: "http", url: "x" } } }));
+    expect(mergeMcpJson(path, false, vscodeConfig()).state).toBe("done");
+    const written = readJsonFile<{ servers: Record<string, unknown>; mcpServers?: unknown }>(path);
+    expect(written?.servers.github).toEqual({ type: "http", url: "x" });
+    expect(written?.servers[serverName()]).toEqual({
+      type: "stdio",
+      command: "npx",
+      args: ["-y", "atomicreps", "mcp"],
+    });
+    expect(written?.mcpServers).toBeUndefined();
+  });
+
+  it("refuses a file it cannot parse rather than replacing someone's configuration", () => {
+    const path = join(dir, "broken.json");
+    writeFileSync(path, "{ not json");
+    const before = statSync(path).size;
+    expect(mergeMcpJson(path, false, vscodeConfig()).state).toBe("failed");
+    expect(statSync(path).size).toBe(before);
   });
 });
 

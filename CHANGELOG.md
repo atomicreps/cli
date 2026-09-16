@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.0.13
+
+- A rep you did not get to is put back on the screen at the end of your next turn, twice, and then steps aside for a fresh one. Before this, one question you scrolled past took every later question with it for four hours.
+- The status line now names the topic of the question waiting on you and carries a link that answers it in your browser. It cuts itself to the width your terminal reports instead of wrapping.
+- `npx atomicreps connect` offers to put that status line into Claude Code for you. A status line you already have keeps printing first and ours becomes a second row. It runs the installed copy directly rather than through npx, so it keeps up with Claude Code's refresh.
+
 ## 0.0.12
 
 - `npx atomicreps connect --pin` writes the launch args with the installed version spelled out (`atomicreps@0.0.12`, not bare `atomicreps`), so an organisation can commit one reviewed command instead of trusting npx to fetch the same thing twice. Plain `connect` is unchanged.

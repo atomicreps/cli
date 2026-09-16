@@ -1,6 +1,6 @@
 # atomicreps
 
-One short question about the thing you just built. Works inside Claude Code, Cursor, Codex, or any MCP client.
+One short question about the thing you just built. Works inside Claude Code, GitHub Copilot, Cursor, Codex, or any MCP client.
 
 ```
 npx atomicreps            the terminal screen: you, this session, topics, mutes, rate
@@ -22,6 +22,31 @@ whatever is latest at launch. `connect --pin` writes `npx -y
 atomicreps@<version> mcp` instead, the version this CLI is running, so an
 organisation can review one exact command and commit it rather than trusting
 npx to fetch the same thing twice.
+
+## GitHub Copilot
+
+`npx atomicreps connect` offers VS Code and Copilot CLI as rows. Without it:
+
+```
+code --add-mcp '{"name":"atomicreps","type":"stdio","command":"npx","args":["-y","atomicreps","mcp"]}'
+copilot mcp add atomicreps -- npx -y atomicreps mcp
+```
+
+Copilot in JetBrains, Visual Studio, Xcode and Eclipse reads the same entry
+from its own `mcp.json` (Settings, then MCP). A team can
+commit it as `.vscode/mcp.json` so every clone has it:
+
+```json
+{
+  "servers": {
+    "atomicreps": { "type": "stdio", "command": "npx", "args": ["-y", "atomicreps", "mcp"] }
+  }
+}
+```
+
+Copilot reads the server's instructions and calls `rep` when a task ends,
+the same as Cursor and Codex. Approve the four tools once and they stay
+approved.
 
 ## How a rep arrives
 

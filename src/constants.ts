@@ -14,6 +14,8 @@ export const TOPICS_TTL_MS = 24 * 60 * 60_000;
 export const GRAMMAR_TTL_MS = 30 * 24 * 60 * 60_000;
 export const STATUS_TTL_MS = 24 * 60 * 60_000;
 export const PENDING_TTL_MS = 4 * 60 * 60_000;
+export const REMIND_LIMIT = 2;
+export const REMIND_GAP_MS = 20 * 60_000;
 export const OFFER_TTL_MS = 30 * 60_000;
 export const REPS_KEPT = 20;
 

@@ -241,7 +241,11 @@ const DIALOG_INTRO =
 export async function dialogScreen(draft: Draft, stepLine?: string): Promise<PickResult<Draft>> {
   const picked = await pickOne<boolean>({
     choices: [
-      { value: false, label: "In the chat", hint: "The letter shows up in the conversation, same as now." },
+      {
+        value: false,
+        label: "In the chat",
+        hint: "The letter shows up in the conversation, same as now.",
+      },
       {
         value: true,
         label: "In a native dialog",
@@ -288,9 +292,7 @@ export function draftLines(draft: Draft, names: ReadonlyMap<string, string> = ne
     `Areas: ${scope}.`,
     `Rate: ${cadence?.says ?? draft.intensity}.`,
     `Depth: ${band}.`,
-    ...(draft.dialog === undefined
-      ? []
-      : [`Answer: ${draft.dialog ? "native dialog" : "chat"}.`]),
+    ...(draft.dialog === undefined ? [] : [`Answer: ${draft.dialog ? "native dialog" : "chat"}.`]),
   ];
 }
 
