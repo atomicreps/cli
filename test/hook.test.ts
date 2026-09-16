@@ -257,6 +257,28 @@ describe("atomicreps hook", () => {
     expect(store.openOffer()).toEqual([{ handle: "css.grid", name: "CSS · Grid" }]);
   });
 
+  it("closes a rep the server says was answered elsewhere, and tells the agent so", async () => {
+    const { hook, config, store } = await load();
+    config.writeConfig({ token: "arep_test", nextEligibleAt: Date.now() + 60_000 });
+    store.observeRep(
+      { kind: "question", id: "q1", topicSlug: "react" },
+      BLOCK,
+      Date.now() - 10_000,
+    );
+    const refused = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ text: "", data: { status: "not_served" } }), {
+          headers: { "content-type": "application/json" },
+        }),
+    );
+    vi.stubGlobal("fetch", refused);
+    const out = await hook.runHook(input("b"));
+    expect(contextOf(out)).toBe(hook.RESOLVED_CONTEXT);
+    expect(store.pendingRep(), "no longer open, so no more reminders").toBeUndefined();
+    expect(await hook.runHook(stopIn()), "and the Stop does not say it again").toBeNull();
+    expect(refused).toHaveBeenCalledTimes(1);
+  });
+
   it("carries the confidence suffix to the server, and sends nothing when there was none", async () => {
     const { hook, config, store } = await load();
     const bodies: Array<Record<string, unknown>> = [];

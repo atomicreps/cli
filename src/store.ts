@@ -206,6 +206,13 @@ export function noteReprinted(id: string, now: number): void {
   updateConfig({ nextEligibleAt: now + REMIND_GAP_MS });
 }
 
+export function noteResolvedElsewhere(id: string, now: number): void {
+  const reps = listReps().map((r) =>
+    r.id === id && r.answeredAt === undefined ? { ...r, answeredAt: now } : r,
+  );
+  writeJson(FILES.reps, { reps });
+}
+
 export function pendingRep(now = clock.now()): StoredRep | undefined {
   const last = listReps().at(-1);
   if (!last || last.answeredAt !== undefined) return undefined;

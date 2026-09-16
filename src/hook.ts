@@ -23,6 +23,7 @@ import {
   cachedMuteKeys,
   ensureGrammar,
   noteReprinted,
+  noteResolvedElsewhere,
   observeClient,
   observeRep,
   observeVerdict,
@@ -50,6 +51,9 @@ const OUR_COMMAND = /^\s*\/(?:mcp__atomicreps[\w-]*__rep|atomicreps:rep)(?:\s|$)
 
 export const QUIET_CONTEXT =
   "Atomic Reps: no rep this turn. Write no rep block and say nothing about this. A rep exists only as text the hook, the rep tool or the rep prompt hands you; never compose, complete or paraphrase one.";
+
+export const RESOLVED_CONTEXT =
+  "Atomic Reps: the rep the user just answered was already answered elsewhere (the web link or another editor), so there is nothing to grade and no rep is open. Say that in one line. Do not call any Atomic Reps tool and write no rep block.";
 
 export const VERDICT_ETIQUETTE =
   "The user just answered their pending rep and the verdict is below. Relay the block verbatim as your whole reply, nothing before or after.";
@@ -146,7 +150,11 @@ async function gradeLetter(
   const data = result.value.data ?? {};
   observeClient(result.value.client, now);
   observeVerdict(id, data, result.value.text, now);
-  if (data.status === "not_served" || data.status === "rate_limited") return quiet();
+  if (data.status === "not_served") {
+    noteResolvedElsewhere(id, now);
+    return context(RESOLVED_CONTEXT);
+  }
+  if (data.status === "rate_limited") return quiet();
   return context(`${VERDICT_ETIQUETTE}\n\n${result.value.text}`);
 }
 
