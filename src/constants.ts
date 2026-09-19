@@ -22,7 +22,6 @@ export const REPS_KEPT = 20;
 
 export const MS_PER_MINUTE = 60_000;
 export const MAX_MUTE_MINUTES = 1440;
-export const MAX_QUIET_MS = MAX_MUTE_MINUTES * MS_PER_MINUTE;
 export const QUICK_MUTE_MINUTES = 120;
 export const QUICK_MUTE_MS = QUICK_MUTE_MINUTES * MS_PER_MINUTE;
 

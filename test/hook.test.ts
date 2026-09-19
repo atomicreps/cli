@@ -602,15 +602,17 @@ describe("two processes, two versions", () => {
 });
 
 describe("the cached clock never outlives the server", () => {
-  it("stays quiet on a near clock and asks the server on a far one", async () => {
-    const { locallyQuiet } = await import("../src/clock.js");
+  it("keeps a far clock no further than the ceiling, and stays quiet until then", async () => {
+    const { clampQuiet, locallyQuiet } = await import("../src/clock.js");
     const { MAX_LOCAL_QUIET_MS } = await import("../src/constants.js");
     const now = 1_000_000;
-    expect(locallyQuiet(now + 60_000, now), "a minute out is believable").toBe(true);
-    expect(locallyQuiet(now + MAX_LOCAL_QUIET_MS, now), "exactly the ceiling").toBe(true);
-    expect(locallyQuiet(now + MAX_LOCAL_QUIET_MS + 1, now), "past it, go and ask").toBe(false);
+    expect(clampQuiet(now + 60_000, now), "a minute out is believable").toBe(now + 60_000);
+    const kept = clampQuiet(now + 13 * 60 * 60_000, now);
+    expect(kept, "a day out is an hour out").toBe(now + MAX_LOCAL_QUIET_MS);
+    expect(locallyQuiet(kept, now), "quiet inside the hour").toBe(true);
+    expect(locallyQuiet(kept, now + MAX_LOCAL_QUIET_MS), "past it, go and ask").toBe(false);
     expect(locallyQuiet(now - 1, now), "already past").toBe(false);
-    expect(locallyQuiet(now + 13 * 60 * 60_000, now)).toBe(false);
+    expect(locallyQuiet(now + MAX_LOCAL_QUIET_MS + 1, now), "past the ceiling, ask").toBe(false);
   });
 });
 

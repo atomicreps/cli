@@ -9,7 +9,6 @@ import {
   FILE_MODE,
   FILES,
   GRAMMAR_TTL_MS,
-  MAX_QUIET_MS,
   OFFER_TTL_MS,
   PENDING_TTL_MS,
   REMIND_GAP_MS,
@@ -169,7 +168,7 @@ export function observeRep(data: Record<string, unknown>, text: string, now: num
     return;
   }
   if (typeof data.nextEligibleAt === "number" && Number.isFinite(data.nextEligibleAt)) {
-    updateConfig({ nextEligibleAt: Math.min(data.nextEligibleAt, now + MAX_QUIET_MS) });
+    updateConfig({ nextEligibleAt: clock.clampQuiet(data.nextEligibleAt, now) });
   }
   if (data.kind === "quiet" && typeof data.reason === "string")
     noteQuiet(data.reason, undefined, now);

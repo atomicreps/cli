@@ -46,3 +46,7 @@ export function within(ms: number, parent?: AbortSignal): AbortSignal {
 export function locallyQuiet(nextEligibleAt: number, at: EpochMs): boolean {
   return nextEligibleAt > at && nextEligibleAt - at <= MAX_LOCAL_QUIET_MS;
 }
+
+export function clampQuiet(nextEligibleAt: number, at: EpochMs): number {
+  return Math.min(nextEligibleAt, at + MAX_LOCAL_QUIET_MS);
+}
