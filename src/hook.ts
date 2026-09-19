@@ -49,6 +49,10 @@ const LETTER = /^\s*([A-Da-d])([!?])?(?:[.):]|\s|$)/;
 const DIGIT = /^\s*([1-3])(?:[.):]|\s|$)/;
 const OUR_COMMAND = /^\s*\/(?:mcp__atomicreps[\w-]*__rep|atomicreps:rep)(?:\s|$)/;
 
+export function isInsightSlot(slot: number): boolean {
+  return slot % 2 === 0;
+}
+
 export const QUIET_CONTEXT =
   "Atomic Reps: no rep this turn. Write no rep block and say nothing about this. A rep exists only as text the hook, the rep tool or the rep prompt hands you; never compose, complete or paraphrase one.";
 
@@ -219,7 +223,11 @@ async function remindRep(
   now: clock.EpochMs,
 ): Promise<HookOutput | null> {
   const { hints, mark } = await inferSession(cwd, INFER_BUDGET_MS, cachedGrammar());
-  const result = await api.rep({ hints, kind: "auto", pending: rep.id }, HOOK_DEADLINE_MS);
+  const slot = rep.shown ?? 0;
+  const result = await api.rep(
+    { hints, kind: "auto", pending: rep.id, reminders: slot },
+    HOOK_DEADLINE_MS,
+  );
   if (!result.ok) {
     updateConfig({ nextEligibleAt: now + DEGRADED_BACKOFF_MS });
     return null;
@@ -227,8 +235,14 @@ async function remindRep(
   const data = result.value.data ?? {};
   if (data.kind === "open") {
     observeClient(result.value.client, now);
-    noteReprinted(rep.id, now);
+    noteReprinted(rep.id, now, isInsightSlot(slot) ? 2 : 1);
     return { systemMessage: hostSystemMessage(rep.text, "") };
+  }
+  if (data.kind === "insight") {
+    const printed = printServed(result, null, now);
+    if (printed === null) return null;
+    noteReprinted(rep.id, now);
+    return printed;
   }
   noteResolvedElsewhere(rep.id, now);
   return printServed(result, mark, now);

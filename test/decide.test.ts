@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { REMIND_LIMIT } from "../src/constants.js";
 import { decide, type HookAction, type HookState } from "../src/hook.js";
 import type { HookInput, OfferEntry, StoredRep } from "../src/types.js";
 
@@ -166,9 +167,15 @@ const CASES: ReadonlyArray<
     { kind: "remind", rep: served(), cwd: "/repo" },
   ],
   [
-    "a rep said its two times gives way to a fresh one, which the next letter grades",
+    "a rep is still reminded halfway through its slots",
     stopped(),
-    given({ pending: reprinted(2) }),
+    given({ pending: reprinted(REMIND_LIMIT - 1) }),
+    { kind: "remind", rep: reprinted(REMIND_LIMIT - 1), cwd: "/repo" },
+  ],
+  [
+    "a rep that has spent every slot gives way to a fresh one, which the next letter grades",
+    stopped(),
+    given({ pending: reprinted(REMIND_LIMIT) }),
     { kind: "push", cwd: "/repo" },
   ],
   [

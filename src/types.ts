@@ -85,6 +85,7 @@ export type RepRequest = {
   readonly exclude?: string;
   readonly lane?: Extract<RepLane, "asked">;
   readonly pending?: string;
+  readonly reminders?: number;
 };
 
 export type Show = "summary" | "skills" | "reps" | "streak" | "mutes";
@@ -158,6 +159,7 @@ export type StoredRep = {
   readonly servedAt: EpochMs;
   readonly answeredAt?: EpochMs;
   readonly shown?: number;
+  readonly verifiedAt?: EpochMs;
   readonly correct?: boolean;
   readonly verdict?: string;
   readonly offer?: readonly OfferEntry[];

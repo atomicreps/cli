@@ -200,10 +200,15 @@ export function observeVerdict(
   if (target !== undefined) recordAnswered(target, data.correct, text, now, offerOf(data));
 }
 
-export function noteReprinted(id: string, now: number): void {
-  const reps = listReps().map((r) => (r.id === id ? { ...r, shown: (r.shown ?? 0) + 1 } : r));
+export function noteReprinted(id: string, now: number, slots = 1): void {
+  const reps = listReps().map((r) => (r.id === id ? { ...r, shown: (r.shown ?? 0) + slots } : r));
   writeJson(FILES.reps, { reps });
   updateConfig({ nextEligibleAt: now + REMIND_GAP_MS });
+}
+
+export function noteVerified(id: string, now: number): void {
+  const reps = listReps().map((r) => (r.id === id ? { ...r, verifiedAt: now } : r));
+  writeJson(FILES.reps, { reps });
 }
 
 export function noteResolvedElsewhere(id: string, now: number): void {

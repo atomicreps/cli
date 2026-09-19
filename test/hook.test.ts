@@ -222,12 +222,46 @@ describe("atomicreps hook", () => {
     expect(new URL(String(fetchSpy.mock.calls[0]?.[0])).pathname).toBe("/mcp/rep");
     expect(messageOf(out) ?? "").toContain("Which hook?");
     expect(contextOf(out), "printed to the user, never handed to the agent").toBeUndefined();
-    expect(store.listReps().at(-1)?.shown).toBe(1);
+    expect(sent.reminders, "and saying which slot it is").toBe(0);
+    expect(
+      store.listReps().at(-1)?.shown,
+      "the empty insight slot is spent with the showing it became",
+    ).toBe(2);
     expect(store.pendingRep()?.id, "the same rep, so the same letter answers it").toBe("q7");
     expect(
       (config.readConfig().nextEligibleAt ?? 0) > Date.now(),
       "and it is not said again on the very next turn",
     ).toBe(true);
+  });
+
+  it("prints the insight the server offers on a reminder slot, and keeps the rep pending", async () => {
+    const { hook, config, store } = await load();
+    holdOpen();
+    config.writeConfig({ token: "arep_test" });
+    const INSIGHT = BLOCK.replace("Which hook?", "Specificity is not proximity.");
+    const fetchSpy = doorSaying(
+      {
+        kind: "insight",
+        topicSlug: "css",
+        topicSource: "touched",
+        nextEligibleAt: Date.now() + 3_600_000,
+        lane: "pushed",
+      },
+      INSIGHT,
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const out = await hook.runHook(stopIn());
+    const sent = JSON.parse(String(fetchSpy.mock.calls[0]?.[1]?.body));
+    expect(sent.pending).toBe("q7");
+    expect(sent.reminders).toBe(0);
+    expect(messageOf(out) ?? "", "the insight is what prints").toContain(
+      "Specificity is not proximity.",
+    );
+    expect(contextOf(out), "printed to the user, never handed to the agent").toBeUndefined();
+    expect(store.pendingRep()?.id, "the rep is still the one a letter grades").toBe("q7");
+    expect(store.listReps(), "an insight is no rep of its own").toHaveLength(1);
+    expect(store.listReps().at(-1)?.shown, "one slot, not two").toBe(1);
   });
 
   it("never says again a rep that was answered on the web: the same reply serves the next one", async () => {
