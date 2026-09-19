@@ -39,6 +39,9 @@ import {
   STAT_LABEL,
   STREAK_DOTS,
   LOGIN_DEADLINE_MS,
+  LOGIN_TTL_MS,
+  POLL_MAX_MS,
+  POLL_MIN_MS,
   QUICK_MUTE_MINUTES,
   QUICK_MUTE_MS,
   TOKEN_PREFIX_CHARS,
@@ -129,10 +132,15 @@ export async function login(interactive = isInteractive()): Promise<boolean> {
   else plain(copy);
   openBrowser(verifyUrl);
 
-  while (clock.now() < expiresAt) {
-    await clock.sleep(intervalMs);
+  const until = Math.min(expiresAt, clock.now() + LOGIN_TTL_MS);
+  let wait = Math.min(Math.max(intervalMs, POLL_MIN_MS), POLL_MAX_MS);
+  while (clock.now() < until) {
+    await clock.sleep(wait);
     const polled = await api.pollDeviceLogin(deviceSecret);
-    if (!polled.ok) continue;
+    if (!polled.ok || polled.value.status === "rate_limited") {
+      wait = Math.min(wait * 2, POLL_MAX_MS);
+      continue;
+    }
     if (polled.value.status === "approved") {
       writeConfig({
         token: polled.value.token,

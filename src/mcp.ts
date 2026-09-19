@@ -1,5 +1,6 @@
 import { createInterface } from "node:readline";
 
+import { cool, spend } from "./budget.js";
 import * as clock from "./clock.js";
 import { apiOrigin, isAlpha, noteFailure, noteQuiet, readConfig, updateConfig } from "./config.js";
 import {
@@ -61,6 +62,8 @@ const FAILURE_KIND = {
   server: "transient",
   closed: "transient",
   cancelled: "silent",
+  budget: "transient",
+  rate_limited: "transient",
 } as const satisfies Record<DoorFailure, "terminal" | "transient" | "silent">;
 
 const TERMINAL_MESSAGE = {
@@ -193,6 +196,9 @@ export class Bridge {
     const field = message.method ? NAMED[message.method] : undefined;
     const named = field ? message.params?.[field] : undefined;
     if (typeof named === "string") headers["mcp-name"] = headerValue(named);
+    const endpoint = `mcp:${message.method ?? ""}${typeof named === "string" ? `:${named}` : ""}`;
+    const allowed = spend(endpoint);
+    if (!allowed.ok) return { ok: false, reason: allowed.reason };
     try {
       const response = await this.fetchImpl(`${apiOrigin()}/mcp`, {
         method: "POST",
@@ -201,6 +207,10 @@ export class Bridge {
         signal: within,
       });
       if (response.status === 401) return { ok: false, reason: "unauthorized" };
+      if (response.status === 429) {
+        cool(endpoint, response.headers.get("retry-after"));
+        return { ok: false, reason: "rate_limited" };
+      }
       if (response.status === 503) return { ok: false, reason: "closed" };
       if (response.status === 202) return { ok: true, body: {} };
       const serverSide = response.status >= 500;

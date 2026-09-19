@@ -1,3 +1,4 @@
+import { cool, spend } from "./budget.js";
 import * as clock from "./clock.js";
 import { apiOrigin, readConfig } from "./config.js";
 import { ANSWER_DEADLINE_MS, CALL_DEADLINE_MS, LOGIN_DEADLINE_MS } from "./constants.js";
@@ -26,6 +27,9 @@ type CallInit = {
 
 async function call(path: string, init: CallInit): Promise<ApiResult<unknown>> {
   const started = clock.now();
+  const endpoint = path.split("?")[0] ?? path;
+  const allowed = spend(endpoint, started);
+  if (!allowed.ok) return { ok: false, reason: allowed.reason, ms: 0 };
   const signal = clock.within(init.deadlineMs ?? CALL_DEADLINE_MS, init.signal);
   try {
     const headers: Record<string, string> = { accept: "application/json", ...init.headers };
@@ -42,6 +46,10 @@ async function call(path: string, init: CallInit): Promise<ApiResult<unknown>> {
       return { ok: true, value: null, ms, status: 304 };
     }
     if (response.status === 401) return { ok: false, reason: "unauthorized", ms };
+    if (response.status === 429) {
+      cool(endpoint, response.headers.get("retry-after"), clock.now());
+      return { ok: false, reason: "rate_limited", ms };
+    }
     if (response.status === 503) return { ok: false, reason: "closed", ms };
     const offProtocol = (): ApiResult<unknown> => ({
       ok: false,

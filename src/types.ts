@@ -49,7 +49,9 @@ export type DoorFailure =
   | "network"
   | "server"
   | "closed"
-  | "cancelled";
+  | "cancelled"
+  | "budget"
+  | "rate_limited";
 
 export type ReportableFailure = Exclude<DoorFailure, "cancelled">;
 
@@ -146,6 +148,13 @@ export type Config = {
   setupAt?: EpochMs;
   lastPushTouch?: string;
   bridgeVersion?: string | undefined;
+  budget?: Record<string, Bucket>;
+};
+
+export type Bucket = {
+  readonly tokens: number;
+  readonly at: EpochMs;
+  readonly until?: EpochMs;
 };
 
 export type OfferEntry = { readonly handle: string; readonly name: string };

@@ -8,6 +8,28 @@ export const TUI_INFER_BUDGET_MS = INFER_BUDGET_MS * 4;
 export const UNAUTHORIZED_BACKOFF_MS = 60 * 60_000;
 export const DEGRADED_BACKOFF_MS = 5 * 60_000;
 
+export const BUDGET_PERIOD_MS = 60 * 60_000;
+export const BUDGET_PER_HOUR: Readonly<Record<string, number>> = {
+  "/mcp/rep": 30,
+  "/mcp/answer": 60,
+  "/mcp/me": 60,
+  "/mcp/settings": 60,
+  "/mcp/vote": 60,
+  "/mcp/topics": 6,
+  "/mcp/grammar": 6,
+  "/mcp/device/start": 10,
+  "/mcp/device/poll": 240,
+  "mcp:tools/call:rep": 30,
+  "mcp:tools/call:answer": 60,
+  "mcp:tools/call:me": 60,
+  "mcp:tools/call:settings": 60,
+};
+export const BUDGET_DEFAULT_PER_HOUR = 30;
+export const MAX_RETRY_AFTER_MS = 60 * 60_000;
+export const POLL_MIN_MS = 1000;
+export const POLL_MAX_MS = 30_000;
+export const LOGIN_TTL_MS = 10 * 60_000;
+
 export const MAX_LOCAL_QUIET_MS = 60 * 60_000;
 
 export const TOPICS_TTL_MS = 24 * 60 * 60_000;
