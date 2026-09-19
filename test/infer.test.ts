@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { MAX_SCAN_FILES } from "../src/constants.js";
-import { inferHints, inferSession } from "../src/infer.js";
+import { inferCommit, inferHints, inferSession } from "../src/infer.js";
 import type { TouchGrammar } from "../src/types.js";
 
 const KNOWS: TouchGrammar = {
@@ -225,5 +225,41 @@ describe("a folder that is not a repository", () => {
       writeFileSync(join(dir, `f${String(i)}.txt`), "x");
     }
     expect((await inferSession(dir, 500)).mark).toBeNull();
+  });
+});
+
+describe("a commit rather than the working tree", () => {
+  async function committed(): Promise<{ dir: string; hash: string }> {
+    const dir = mkdtempSync(join(tmpdir(), "atomicreps-commit-"));
+    const { execSync } = await import("node:child_process");
+    const git = (cmd: string) =>
+      execSync(`git -c user.email=t@t -c user.name=t ${cmd}`, { cwd: dir, encoding: "utf8" });
+    git("init -q");
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ dependencies: { react: "19" } }));
+    git("add -A && git -c user.email=t@t -c user.name=t commit -q -m base");
+    writeFileSync(
+      join(dir, "server.ts"),
+      'import { Hono } from "hono";\nexport const app = new Hono();\n',
+    );
+    git("add -A && git -c user.email=t@t -c user.name=t commit -q -m work");
+    return { dir, hash: git("rev-parse HEAD").trim() };
+  }
+
+  it("finds the committed work the clean tree no longer shows", async () => {
+    const { dir, hash } = await committed();
+    const tree = await inferSession(dir, 2000, KNOWS);
+    expect(tree.hints.extensions).not.toContain("ts");
+    const commit = await inferCommit(dir, hash, 2000, KNOWS);
+    expect(commit.hints.extensions).toContain("ts");
+    expect(commit.hints.packages[0]).toBe("hono");
+    expect(commit.mark).not.toBeNull();
+    expect((await inferCommit(dir, hash, 2000, KNOWS)).mark).toBe(commit.mark);
+  });
+
+  it("refuses a hash that is not one before it can reach git", async () => {
+    const { dir } = await committed();
+    const session = await inferCommit(dir, "--output=/tmp/x", 2000, KNOWS);
+    expect(session.mark).toBeNull();
+    expect(session.hints.touched).toEqual([]);
   });
 });

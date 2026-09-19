@@ -14,6 +14,7 @@ import { basename, dirname, extname, join, relative } from "node:path";
 import * as clock from "./clock.js";
 import {
   INFER_BUDGET_MS,
+  TUI_INFER_BUDGET_MS,
   MAX_BYTES_PER_FILE,
   MAX_CHANGED,
   MAX_SCAN_DEPTH,
@@ -190,34 +191,24 @@ export function addedLines(diff: string): string[] {
 
 export type Session = { hints: LocalHints; mark: string | null };
 
-export async function inferSession(
+const NOTHING: LocalHints = { packages: [], extensions: [], touched: [] };
+
+function safePaths(raw: string, prefixChars: number): string[] {
+  return raw
+    .split("\0")
+    .map((entry) => entry.slice(prefixChars).trim())
+    .filter(isSafeRepoPath)
+    .slice(0, MAX_CHANGED);
+}
+
+function hintsOf(
+  root: string,
   cwd: string,
-  budgetMs = INFER_BUDGET_MS,
-  grammar: TouchGrammar | null = null,
-): Promise<Session> {
-  const deadline = clock.deadline(budgetMs);
-
-  const inRepo = findRepoRoot(cwd);
-  const root = inRepo ?? cwd;
-
-  const changedRaw =
-    inRepo === null
-      ? ""
-      : await runGit(
-          cwd,
-          ["status", "--porcelain", "-z", "--untracked-files=all", "--no-renames"],
-          Math.min(deadline.remaining(), budgetMs * 0.4),
-        );
-  const scan = inRepo === null ? scanRecent(cwd, deadline) : null;
-  const changed =
-    scan === null
-      ? changedRaw
-          .split("\0")
-          .map((entry) => entry.slice(3).trim())
-          .filter(isSafeRepoPath)
-          .slice(0, MAX_CHANGED)
-      : scan.files.filter(isSafeRepoPath);
-
+  changed: readonly string[],
+  diff: string,
+  deadline: clock.Deadline,
+  grammar: TouchGrammar | null,
+): LocalHints {
   const extensions = new Set<string>();
   const packages = new Set<string>();
   for (const file of changed) {
@@ -226,15 +217,6 @@ export async function inferSession(
     const dir = file.split("/")[0];
     if (dir && dir !== file) extensions.add(dir.toLowerCase());
   }
-
-  const diff =
-    grammar && changed.length > 0 && deadline.remaining() > 20
-      ? await runGit(
-          root,
-          ["diff", "--no-color", "--unified=0", "--no-ext-diff", "HEAD", "--", ...changed],
-          Math.min(deadline.remaining(), budgetMs * 0.3),
-        )
-      : "";
 
   const byRecency = changed
     .map((file) => {
@@ -264,19 +246,87 @@ export async function inferSession(
       : applyGrammar(grammar, { paths: changed, addedLines: addedLines(diff), heads, deadline });
 
   const vocabulary = grammar ?? EMPTY_GRAMMAR;
-  const named = {
-    packages: knownPackages(vocabulary, [...packages]),
-    extensions: knownExtensions(vocabulary, [...extensions]),
+  return {
+    packages: knownPackages(vocabulary, [...packages]).slice(0, MAX_PACKAGES_SENT),
+    extensions: knownExtensions(vocabulary, [...extensions]).slice(0, MAX_EXTENSIONS_SENT),
+    touched,
   };
+}
+
+export async function inferSession(
+  cwd: string,
+  budgetMs = INFER_BUDGET_MS,
+  grammar: TouchGrammar | null = null,
+): Promise<Session> {
+  const deadline = clock.deadline(budgetMs);
+
+  const inRepo = findRepoRoot(cwd);
+  const root = inRepo ?? cwd;
+
+  const changedRaw =
+    inRepo === null
+      ? ""
+      : await runGit(
+          cwd,
+          ["status", "--porcelain", "-z", "--untracked-files=all", "--no-renames"],
+          Math.min(deadline.remaining(), budgetMs * 0.4),
+        );
+  const scan = inRepo === null ? scanRecent(cwd, deadline) : null;
+  const changed = scan === null ? safePaths(changedRaw, 3) : scan.files.filter(isSafeRepoPath);
+
+  const diff =
+    grammar && changed.length > 0 && deadline.remaining() > 20
+      ? await runGit(
+          root,
+          ["diff", "--no-color", "--unified=0", "--no-ext-diff", "HEAD", "--", ...changed],
+          Math.min(deadline.remaining(), budgetMs * 0.3),
+        )
+      : "";
 
   return {
-    hints: {
-      packages: named.packages.slice(0, MAX_PACKAGES_SENT),
-      extensions: named.extensions.slice(0, MAX_EXTENSIONS_SENT),
-      touched,
-    },
+    hints: hintsOf(root, cwd, changed, diff, deadline, grammar),
     mark:
       inRepo === null ? (scan?.mark ?? null) : fingerprint(`${changedRaw}|${String(diff.length)}`),
+  };
+}
+
+const COMMIT_HASH = /^[0-9a-f]{7,64}$/;
+
+export async function inferCommit(
+  cwd: string,
+  hash: string,
+  budgetMs = TUI_INFER_BUDGET_MS,
+  grammar: TouchGrammar | null = null,
+): Promise<Session> {
+  const root = findRepoRoot(cwd);
+  if (root === null || !COMMIT_HASH.test(hash)) return { hints: NOTHING, mark: null };
+  const deadline = clock.deadline(budgetMs);
+  const changedRaw = await runGit(
+    root,
+    ["diff-tree", "--no-commit-id", "--name-only", "-r", "-z", "--root", hash],
+    Math.min(deadline.remaining(), budgetMs * 0.4),
+  );
+  const changed = safePaths(changedRaw, 0);
+  const diff =
+    grammar && changed.length > 0 && deadline.remaining() > 20
+      ? await runGit(
+          root,
+          [
+            "show",
+            "--no-color",
+            "--unified=0",
+            "--no-ext-diff",
+            "--format=",
+            hash,
+            "--",
+            ...changed,
+          ],
+          Math.min(deadline.remaining(), budgetMs * 0.3),
+        )
+      : "";
+  return {
+    hints: hintsOf(root, cwd, changed, diff, deadline, grammar),
+    mark: fingerprint(`${hash}|${changedRaw}`),
   };
 }
 
