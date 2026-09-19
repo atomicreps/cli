@@ -166,6 +166,18 @@ export function grammar(knownVersion?: string, deadlineMs?: number): Promise<Api
   });
 }
 
+export function vote(id: string, rating: "useful" | "not_useful"): Promise<ApiResult<ToolReply>> {
+  return parsed(
+    call("/mcp/vote", {
+      method: "POST",
+      body: { id, rating },
+      token: token(),
+      deadlineMs: ANSWER_DEADLINE_MS,
+    }),
+    parseToolReply,
+  );
+}
+
 export function settings(patch: SettingsPatch): Promise<ApiResult<ToolReply>> {
   return parsed(
     call("/mcp/settings", {
