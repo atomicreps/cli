@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.0.14
+
+- You can now say how many insights you want. An insight is something worth knowing with nothing to answer, and until now three a day arrived whether or not that suited you. Tell your agent "insights light" for one a day, "insights off" for none, or "insights more" on Pro for up to eight. Asking for one out loud still works at every setting, including off.
+
 ## 0.0.13
 
 - A rep you did not get to is put back on the screen at the end of your next turn, twice, and then steps aside for a fresh one. Before this, one question you scrolled past took every later question with it for four hours. Before it says a rep again, the hook checks with the server, so a rep you answered on the web link or in another editor is closed here too and the next one comes in its place.

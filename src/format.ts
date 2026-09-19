@@ -232,11 +232,12 @@ export const FALLBACK_TOOLS = [
     name: "settings",
     title: "Intensity, mutes, preferences",
     description:
-      "Set intensity, a timed mute, a topic mute for days or forever, an unmute, preferred domains, strict mode, or the dialog.",
+      "Set intensity, insights, a timed mute, a topic mute for days or forever, an unmute, preferred domains, strict, the dialog.",
     inputSchema: {
       type: "object",
       properties: {
         intensity: { type: "string" },
+        insights: { type: "string" },
         confidencePrompt: { type: "string" },
         muteMinutes: { type: "number" },
         mute: { type: "string" },

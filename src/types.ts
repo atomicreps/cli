@@ -106,6 +106,7 @@ export type Intensity = (typeof INTENSITIES)[number];
 
 export type SettingsPatch = {
   readonly intensity?: Intensity;
+  readonly insights?: string;
   readonly confidencePrompt?: string;
   readonly muteMinutes?: number;
   readonly mute?: string;
