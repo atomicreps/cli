@@ -59,16 +59,25 @@ export function purgeLocalData(): void {
   }
 }
 
-async function refreshTopics(now: number): Promise<TopicsFile | null> {
-  const fetched = await api.topics(CATALOG_DEADLINE_MS);
-  if (!fetched.ok) return null;
-  const file: TopicsFile = {
-    fetchedAt: now,
-    topics: fetched.value.topics,
-    ...(fetched.value.domains ? { domains: fetched.value.domains } : {}),
-  };
-  writeJson(FILES.topics, file);
-  return file;
+let topicsInFlight: Promise<TopicsFile | null> | null = null;
+
+function refreshTopics(now: number): Promise<TopicsFile | null> {
+  topicsInFlight ??= api
+    .topics(CATALOG_DEADLINE_MS)
+    .then((fetched) => {
+      if (!fetched.ok) return null;
+      const file: TopicsFile = {
+        fetchedAt: now,
+        topics: fetched.value.topics,
+        ...(fetched.value.domains ? { domains: fetched.value.domains } : {}),
+      };
+      writeJson(FILES.topics, file);
+      return file;
+    })
+    .finally(() => {
+      topicsInFlight = null;
+    });
+  return topicsInFlight;
 }
 
 export async function topicCatalog(now = clock.now()): Promise<TopicEntry[]> {
