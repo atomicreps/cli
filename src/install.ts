@@ -70,22 +70,22 @@ export function draftOf(summary: {
 export const LEVELS = [
   { level: 1, name: "foundations", says: "what a thing is, and what it is for" },
   { level: 2, name: "working", says: "what an option does, and how two of them differ" },
-  { level: 3, name: "deep", says: "a setup you could hit, and what actually happens" },
-  { level: 4, name: "hard", says: "two mechanisms meeting, and which one wins" },
-  { level: 5, name: "brutal", says: "the trade-off, and where the simple story breaks" },
+  { level: 3, name: "deep", says: "a realistic setup, and what happens when it runs" },
+  { level: 4, name: "hard", says: "two mechanisms interacting, and which one takes precedence" },
+  { level: 5, name: "brutal", says: "the trade-off, and where the simple explanation is wrong" },
 ] as const satisfies readonly Rung[];
 
 export const WELCOME = [
-  "One short question about the thing you just built, while it is still warm. Your agent never writes it. Every question is authored and reviewed long before it reaches you.",
-  "What leaves this machine is the topic and sub-skill names the question is chosen from, with small weights, and the names of packages, file extensions and folders the public catalog already knows. Anything it does not know stays here, as does every line of your code and every word of your prompts.",
+  "One short question about the thing you just built, while you still remember it. Your agent never writes it. Every question is authored and reviewed long before it reaches you.",
+  "This machine sends only the topic and sub-skill names the question is chosen from, with small weights, and the names of packages, file extensions and folders the public catalog already knows. Anything it does not know stays here, as does every line of your code and every word of your prompts.",
   "AI makes the work faster. How the work feels is part of the evidence too: atomicreps.com/research/the-human-cost",
 ] as const;
 
 export const SENT_NOTE =
-  "That is the whole of it. We choose the question from those names and the settings you pick next. More at atomicreps.com/docs/data-flows";
+  "We send nothing else. We choose the question from those names and the settings you pick next. More at atomicreps.com/docs/data-flows";
 
 export const FREE_LEVEL_NOTE =
-  "A tagged level is stored, never refused: set the level range you actually want and it is already right the day a Pro, team or school seat lands. Free is served the first level until then.";
+  "A tagged level is stored, never refused: set the level range you want and it applies from the day a paid Pro, team or school seat starts. On Free you get level 1 questions until then.";
 
 function paragraph(text: string, width: number = TEXT_WIDTH): string[] {
   return wrap(text, width).map((line) => paint(line, "faint"));
@@ -102,7 +102,7 @@ async function sentScreen(): Promise<void> {
       : paragraph(
           grammar === null
             ? "    Topic names resolve after you sign in; the rest below is read here on your machine."
-            : "    Nothing touched yet, so a rep would follow your settings instead.",
+            : "    Nothing changed yet, so a rep would be chosen from your settings instead.",
         );
   const line = (label: string, values: readonly string[]): string[] => {
     if (values.length === 0) return [];
@@ -116,7 +116,7 @@ async function sentScreen(): Promise<void> {
       title("What gets sent."),
       "",
       ...paragraph(
-        "Everything below is what this repo would put on the wire right now, and it is only names the catalog already knows. Shapes are file extensions and top-level folder names.",
+        "Everything below is what this repo would send right now, and it is only names the catalog already knows. Shapes are file extensions and top-level folder names.",
         COPY_WIDTH,
       ),
       "",
@@ -150,7 +150,7 @@ export function catalogTree(
 }
 
 const SCOPE_INTRO =
-  "Take a whole area, or open one and pick the topics inside it. Type any letters to search all of them at once. What you are building still wins; this is where a rep comes from when your working tree is silent.";
+  "Take a whole area, or open one and pick the topics inside it. Type any letters to search all of them at once. What you are building still comes first; these topics are used when your working tree has no recent changes.";
 
 export async function scopeScreen(draft: Draft, stepLine?: string): Promise<PickResult<Draft>> {
   const groups = catalogTree(await domainCatalog(), await topicCatalog());
@@ -183,7 +183,7 @@ export async function gateScreen(draft: Draft, stepLine?: string): Promise<PickR
       {
         value: false,
         label: "These first",
-        hint: "Anything you touch can be asked; what you picked comes first.",
+        hint: "Questions can come from anything you touch; what you picked comes first.",
       },
       {
         value: true,
@@ -194,7 +194,7 @@ export async function gateScreen(draft: Draft, stepLine?: string): Promise<PickR
     current: draft.strict,
     heading: "What about everything else?",
     intro:
-      "A rep follows the work, so a day spent in a language you did not pick can still ask you about it. Choose whether that is welcome.",
+      "A rep is chosen from what you changed, so if you work in a language you did not pick, you can still get questions about it. Choose whether you want that.",
     stepLine,
   });
   if (!picked.ok) return picked;
@@ -211,7 +211,7 @@ export async function cadenceScreen(draft: Draft, stepLine?: string): Promise<Pi
     current: draft.intensity,
     heading: "How often should a rep arrive?",
     intro:
-      "A rep waits for a finished task, never for a keystroke. The gap is the most it will ever ask.",
+      "A rep appears after a task finishes, never while you type. Each option is the most often a rep can appear.",
     stepLine,
   });
   if (!picked.ok) return picked;
@@ -227,7 +227,7 @@ export async function levelsScreen(draft: Draft, stepLine?: string): Promise<Pic
     band: draft.levels,
     heading: "How hard?",
     intro:
-      "Space the easiest level you want, then the hardest. Everything between them is in play.",
+      "Space the easiest level you want, then the hardest. Questions can come from every level between them.",
     stepLine,
     note: FREE_LEVEL_NOTE,
   });
@@ -253,7 +253,7 @@ export async function dialogScreen(draft: Draft, stepLine?: string): Promise<Pic
       },
     ],
     current: draft.dialog ?? false,
-    heading: "Where should the answer land?",
+    heading: "Where should the answer go?",
     intro: DIALOG_INTRO,
     stepLine,
   });

@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 
 import { configPath, isAlpha } from "./config.js";
@@ -67,6 +67,45 @@ export function statusLineWired(path: string): boolean {
   if ("failed" in read) return false;
   const command = commandOf(read.settings);
   return command !== undefined && isOurs(command);
+}
+
+export function statusLineOurs(path: string): boolean {
+  const read = readSettings(path);
+  if ("failed" in read) return false;
+  const command = commandOf(read.settings);
+  return command !== undefined && OURS.test(command);
+}
+
+function wrapperOf(command: string): string | undefined {
+  const match = /^sh "(.+)"$/.exec(command);
+  return match?.[1]?.replaceAll('\\"', '"');
+}
+
+function originalIn(wrapper: string): string | undefined {
+  const prefix = `first=$(printf '%s' "$input" | `;
+  const line = readFileSync(wrapper, "utf8")
+    .split("\n")
+    .find((row) => row.startsWith(prefix) && row.endsWith(")"));
+  return line?.slice(prefix.length, -1);
+}
+
+export function unwireStatusLine(path: string): Applied {
+  const read = readSettings(path);
+  if ("failed" in read) return { state: "failed", says: read.failed };
+  const { settings } = read;
+  const command = commandOf(settings);
+  if (command === undefined || !OURS.test(command)) return { state: "done", says: "already gone" };
+  const line = isRecord(settings.statusLine) ? settings.statusLine : {};
+  const wrapper = wrapperOf(command);
+  const original = wrapper !== undefined && existsSync(wrapper) ? originalIn(wrapper) : undefined;
+  if (original !== undefined && wrapper !== undefined) {
+    writeSettings(path, { ...settings, statusLine: { ...line, command: original } });
+    rmSync(wrapper, { force: true });
+    return { state: "done", says: `your own status line is back (${original})` };
+  }
+  const { statusLine: _ours, ...rest } = settings;
+  writeSettings(path, rest);
+  return { state: "done", says: `removed from ${path}` };
 }
 
 export function wireStatusLine(path: string, ours = statusLineCommand()): Applied {

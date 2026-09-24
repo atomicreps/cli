@@ -1,14 +1,20 @@
 # Changelog
 
+## 0.0.15
+
+- `npx atomicreps logout --purge` now offers to remove what `connect` set up. After signing you out, it lists every editor entry `connect` wrote on this machine, all ticked: the Claude Code server, its four allowed tools and its status line, and the entries for Codex, VS Code, Copilot CLI, Cursor and Windsurf. Enter removes the ticked ones, and a row you untick stays. If you had your own status line before, it comes back. Before this, signing out left every editor still starting the old server, and signing in again added a second server next to it.
+- A letter answers the open rep only when your message is a single line. A message of several lines whose first line is a letter is no longer read as an answer.
+- The setup wizard, `--help` and `doctor` say what they do in plainer words.
+
 ## 0.0.14
 
-- You can now say how many insights you want. An insight is something worth knowing with nothing to answer, and until now three a day arrived whether or not that suited you. Tell your agent "insights light" for one a day, "insights off" for none, or "insights more" on Pro for up to eight. Asking for one out loud still works at every setting, including off.
+- You can now say how many insights you want. An insight is a short fact to read, with no question to answer, and until now you got three a day whether or not you wanted that many. Tell your agent "insights light" for one a day, "insights off" for none, or "insights more" on Pro for up to eight. Asking for one out loud still works at every setting, including off.
 
 ## 0.0.13
 
-- A rep you did not get to is put back on the screen at the end of your next turn, twice, and then steps aside for a fresh one. Before this, one question you scrolled past took every later question with it for four hours. Before it says a rep again, the hook checks with the server, so a rep you answered on the web link or in another editor is closed here too and the next one comes in its place.
-- The status line now shows the question waiting on you: the stem on one row and the four options under it, cut to the width your terminal reports, so a letter is one keystroke away however far the block has scrolled. After you answer it keeps the verdict up for ten minutes, and with nothing open it says when the next rep comes and how your day stands, or nothing at all.
-- `npx atomicreps connect` offers to put that status line into Claude Code for you. A status line you already have keeps printing first and ours becomes a second row. It runs the installed copy directly rather than through npx, so it keeps up with Claude Code's refresh.
+- A rep you did not get to is put back on the screen at the end of your next turn, twice, and is then replaced by a new one. Before this, one question you scrolled past blocked every later question for four hours. Before it shows a rep again, the hook checks with the server, so a rep you answered on the web link or in another editor is closed here too and the next rep is shown instead.
+- The status line now shows the question waiting on you: the stem on one row and the four options under it, cut to the width your terminal reports, so a letter is one keystroke away however far the block has scrolled. After you answer, the status line shows the verdict for ten minutes, and with no open question it shows when the next rep is due and your counts for the day, or nothing at all.
+- `npx atomicreps connect` offers to put that status line into Claude Code for you. A status line you already have keeps printing first and ours becomes a second row. The status line runs the installed copy directly rather than through npx, so it is fast enough for Claude Code's refresh.
 
 ## 0.0.12
 
@@ -18,7 +24,7 @@
 
 ## 0.0.11
 
-- Your agent is no longer offered a question it cannot have. While a rep is waiting for your letter, and while the door is off, muted, or has spent the day's budget, the tool is simply not on the list, and it comes back on its own the moment the wait is over. Before this, the agent would ask, get nothing, and you paid for the round trip.
+- Your agent is no longer offered a question it cannot have. While a rep is waiting for your letter, and while reps are off, muted, or the day's budget is used up, the tool is not on the list, and it reappears automatically when the wait is over. Before this, the agent would ask, get nothing, and you paid for the round trip.
 - An editor can now follow your day's counts and streak as they change, instead of asking again and again.
 
 ## 0.0.10
@@ -27,15 +33,15 @@
 
 ## 0.0.9
 
-- Loop is drawn by the mascot himself now, in colour, instead of the box glyphs that stood in for him. A terminal without colour still gets a drawn Loop, redrawn so he reads as an animal rather than a box with a face.
-- The home screen leads with one thing: do a rep. The other nine keys moved behind `?`, grouped and each saying what it is set to; they all still work from the home screen, so nothing you had learned has moved.
-- Your day reads as figures rather than sentences: a week of streak dots, and a meter on the reps you have asked for against the day's ceiling.
-- The list of areas no longer runs off the side of the screen. It is cut to the width it actually has.
-- Every rep now carries a link to answer it in a browser. Answering with a letter wakes your agent for a whole turn, which is the expensive part of a rep; the link costs nothing but the click. It opens for you and nobody else, and it does not expire.
+- Loop is drawn by the mascot himself now, in colour, instead of the box glyphs that stood in for him. A terminal without colour still gets a drawn Loop, redrawn so he looks like an animal rather than a box with a face.
+- The home screen now shows one action first: do a rep. The other nine keys moved behind `?`, grouped and each saying what it is set to; they all still work from the home screen, so nothing you had learned has moved.
+- Your day is shown as figures rather than sentences: a week of streak dots, and a meter of the reps you have asked for against the day's limit.
+- The list of areas no longer extends past the side of the screen. It is cut to the screen's width.
+- Every rep now carries a link to answer it in a browser. Answering with a letter starts a whole agent turn, which is the expensive part of a rep; the link costs only the click. It opens for you and nobody else, and it does not expire.
 
 ## 0.0.8
 
-- `hook`, `mcp`, `statusline` and `doctor` now follow whichever channel you signed in with, when none is named; production wins if both are signed in. `login`, `connect` and `logout` still need an explicit channel; `doctor` says when it picked one automatically.
+- `hook`, `mcp`, `statusline` and `doctor` now follow whichever channel you signed in with, when none is named; production is used if both are signed in. `login`, `connect` and `logout` still need an explicit channel; `doctor` says when it picked one automatically.
 
 ## 0.0.7
 
@@ -53,8 +59,8 @@
 
 ## 0.0.5
 
-- The areas you pick can now decide what arrives, not just break a tie. Setup now asks: "These first" (the old default) or "Only these" (no rep for a session spent outside your chosen areas).
-- `npx atomicreps` now says when a quiet stretch was caused by this setting, and how many reps it skipped today.
+- The areas you pick can now decide which reps you get, not just break a tie. Setup now asks: "These first" (the old default) or "Only these" (no rep for a session spent outside your chosen areas).
+- `npx atomicreps` now says when a period with no reps was caused by this setting, and how many reps it skipped today.
 - Say "only ask me about my areas" to turn this on, or "ask me about everything I touch" to turn it off.
 - Picking no areas leaves the setting inactive, same as everywhere else in the catalog.
 
@@ -66,50 +72,50 @@
 - `ATOMICREPS_API` and `ATOMICREPS_SITE` are now honoured only for an Atomic Reps address or a loopback address. Anything else is ignored and reported by `npx atomicreps doctor`; set `ATOMICREPS_UNSAFE_ORIGIN=1` to restore the old behaviour.
 - `npx atomicreps logout --purge` now also deletes the reps, status, and error log this machine cached.
 - SECURITY.md now states the trust boundary and where to report a vulnerability.
-- `doctor` now tells you when the MCP server process your editor is running has fallen behind, and asks you to restart. Shown once per server start, not every turn.
+- `doctor` now tells you when the MCP server process your editor is running is an older version, and asks you to restart. Shown once per server start, not every turn.
 - Fixed `permission denied` on upgrade, caused by `dist/cli.js` shipping without its executable bit. Anyone who ran 0.0.1 or 0.0.2 before 0.0.3 needed to clear the npx cache; this is now fixed at the source.
 
 ## 0.0.3
 
-Three themes: a rep arrives only when your turn is actually over, the server stops changing your pace behind your back, and failures stop being silent.
+Three themes: a rep is shown only when your turn is over, the server no longer changes your pace without telling you, and failures are reported.
 
-### When a rep arrives
+### When a rep is shown
 
-- In Claude Code, the `Stop` hook now prints the rep when Claude's turn ends, instead of handing it to Claude to append after its answer.
+- In Claude Code, the `Stop` hook now prints the rep when Claude's turn ends, instead of passing it to Claude to append after its answer.
 - No rep while Claude is asking you something; your answer is the next message.
 - No rep until something has changed in your working tree since the last one.
 - No rep about something unrelated. Asking for one by number still draws from your history and says so.
 
 ### Pace
 
-- Nothing widens your gap or shrinks your day automatically anymore.
+- Nothing lengthens the gap between reps or lowers your daily count automatically anymore.
 - After five skips, and every fifth after that, a rep offers a lighter pace instead of imposing one.
-- Pro has no daily ceiling: you pay for a pace, not a quota. Free keeps three a day; off still means off.
+- Pro has no daily limit: you pay for a pace, not a quota. Free keeps three a day; off still means off.
 
 ### Reaching the server
 
-- A wrong `ATOMICREPS_API` now names itself as the problem instead of reading as a bad minute.
-- An outage no longer costs a session its tools; the MCP server process keeps offering the four tool names.
-- `rep` now speaks up when the server is unreachable for good, instead of retrying silently.
+- A wrong `ATOMICREPS_API` is now reported as the problem instead of looking like a brief outage.
+- An outage no longer removes the tools from a session; the MCP server process keeps offering the four tool names.
+- `rep` now reports when the server stays unreachable, instead of retrying silently.
 - A status the old two-strikes rule had shut stayed shut for a day; a migration now clears it.
-- This machine now stops trusting its own cached clock past an hour.
-- The setup instructions explain how to reach `rep` when a client lists tools by name only.
+- This machine now stops relying on its own cached clock after an hour.
+- The setup instructions explain how to call `rep` when a client lists tools by name only.
 
 ### Setup
 
 - The connect screen now shows the command it actually runs.
 - `npx atomicreps doctor` now follows `CLAUDE_CONFIG_DIR` instead of always reading `~/.claude`.
-- Text beside Loop now fits the terminal instead of running off the right edge.
+- Text beside Loop now fits the terminal instead of extending past the right edge.
 
 ### Wizard
 
 - One tree instead of two letter-keyed screens. Arrows move, space picks, right opens an area, and typing searches all 141 topics at once.
 - The first screen now requires an area, instead of treating empty as "all of it."
-- The difficulty range is now picked on a ladder: space the easiest level, then the hardest. Levels above the free one carry a PRO tag.
+- The difficulty range is now picked from a list of levels: space the easiest level, then the hardest. Levels above the free one carry a PRO tag.
 - Every screen uses the same four keys: arrows move, space picks, enter continues, escape goes back.
 - `npx atomicreps connect` now asks before changing anything. It lists Claude Code, Cursor, Windsurf, and Codex, ticks nothing, and only edits the rows you pick.
 - Ctrl-C now leaves a wizard screen.
-- An area you pick is now sent as an area, so topics added to it later reach you.
+- An area you pick is now sent as an area, so topics added to it later are included.
 
 ## 0.0.2
 

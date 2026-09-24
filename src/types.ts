@@ -33,6 +33,7 @@ export type ClientState = {
   readonly grammarVersion?: string;
   readonly muteKeys?: readonly string[];
   readonly release?: { readonly version?: string; readonly notes?: string };
+  readonly asksSure?: boolean;
 };
 
 export type ToolReply = {

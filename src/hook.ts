@@ -96,8 +96,12 @@ function parseInput(raw: string): HookInput {
   };
 }
 
+function isOneLine(prompt: string): boolean {
+  return prompt.length <= MAX_SHORT_PROMPT_CHARS && !prompt.trim().includes("\n");
+}
+
 export function letterOf(prompt: string): { pick: Pick; sure?: boolean } | null {
-  if (prompt.length > MAX_SHORT_PROMPT_CHARS) return null;
+  if (!isOneLine(prompt)) return null;
   const match = LETTER.exec(prompt);
   const pick = asPick(match?.[1]);
   if (!pick) return null;
@@ -106,7 +110,7 @@ export function letterOf(prompt: string): { pick: Pick; sure?: boolean } | null 
 }
 
 export function digitOf(prompt: string): number | null {
-  if (prompt.length > MAX_SHORT_PROMPT_CHARS) return null;
+  if (!isOneLine(prompt)) return null;
   const match = DIGIT.exec(prompt);
   return match?.[1] === undefined ? null : Number(match[1]);
 }
@@ -189,7 +193,7 @@ function upgradeLine(client: ClientState | undefined): string {
   updateConfig({ bridgeVersion: undefined });
   const notes = client?.release?.notes;
   const where = typeof notes === "string" && notes !== "" ? `\n  ${notes}` : "";
-  return `\n\n${tint(`  atomicreps ${running} → ${latest}. Restart your editor to pick it up.${where}`, "dim")}`;
+  return `\n\n${tint(`  atomicreps ${running} → ${latest}. Restart your editor to load it.${where}`, "dim")}`;
 }
 
 function printServed(

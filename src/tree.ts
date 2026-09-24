@@ -113,11 +113,17 @@ export function selectionLine(
 ): { text: string; ready: boolean } {
   const { prefer, topics } = draftFrom(groups, picked);
   if (prefer.length === 0) {
-    return { text: "Pick at least one area. A rep has to come from somewhere.", ready: false };
+    return {
+      text: "Pick at least one area. When your working tree has no recent changes, reps come from these areas.",
+      ready: false,
+    };
   }
   const areas = prefer.length === 1 ? "1 area" : `${prefer.length} areas`;
   if (topics.length === 0) {
-    return { text: `${areas}, whole. New topics in them arrive as they are added.`, ready: true };
+    return {
+      text: `${areas}, whole. New topics in them are included as they are added.`,
+      ready: true,
+    };
   }
   const count = topics.length === 1 ? "1 topic" : `${topics.length} topics`;
   return { text: `${areas}, narrowed to ${count}.`, ready: true };

@@ -45,8 +45,10 @@ function parseClientState(value: unknown): ClientState | undefined {
   const grammarVersion = str(raw.grammarVersion);
   const version = release && str(release.version);
   const notes = release && str(release.notes);
+  const asksSure = bool(raw.asksSure);
   return {
     ...(grammarVersion === undefined ? {} : { grammarVersion }),
+    ...(asksSure === undefined ? {} : { asksSure }),
     ...(Array.isArray(raw.muteKeys) ? { muteKeys: stringList(raw.muteKeys) } : {}),
     ...(release === undefined
       ? {}

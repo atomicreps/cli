@@ -75,6 +75,10 @@ describe("a tool reply", () => {
     expect(parseToolReply({ text: "", client: { muteKeys: ["react", 4] } }).client).toEqual({
       muteKeys: ["react"],
     });
+    expect(parseToolReply({ text: "", client: { asksSure: false } }).client).toEqual({
+      asksSure: false,
+    });
+    expect(parseToolReply({ text: "", client: { asksSure: "yes" } }).client).toEqual({});
   });
 });
 

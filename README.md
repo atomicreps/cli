@@ -11,7 +11,7 @@ npx atomicreps connect --pin   pin the launch args to this installed version, fo
 npx atomicreps mcp        the stdio MCP server process (what the editor launches)
 npx atomicreps doctor     token, server ping, version, when the next rep may come, allowlist
 npx atomicreps logout     forget the token on this machine
-npx atomicreps logout --purge   also forget your reps and status; for a shared machine
+npx atomicreps logout --purge   also forget your reps and status, and offer to undo connect
 ```
 
 Add `--alpha` to any command to use staging. It keeps its own token and cache,
@@ -48,28 +48,29 @@ Copilot reads the server's instructions and calls `rep` when a task ends,
 the same as Cursor and Codex. Approve the four tools once and they stay
 approved.
 
-## How a rep arrives
+## How a rep is served
 
 When your coding agent finishes a task, it calls `rep` once with a few words
 for what changed. The server picks one question, or nothing, and your agent
-shows it to you as it came back. Reply with a letter, or ignore it.
+shows it to you unchanged. Reply with a letter, or ignore it.
 
 Under the verdict, one line names up to three other things the session
-touched. A number asks about one of them. "Never Swift" mutes a topic for
-good. "Not this topic" rests it for thirty days. "Unmute Swift" lifts it.
+touched. A number asks about one of them. "Never Swift" mutes a topic
+permanently. "Not this topic" mutes it for thirty days. "Unmute Swift" removes
+the mute.
 "How am I doing" prints your summary.
 
 The server enforces the pace, not the agent. It sets a minimum gap between
 automatic reps, a daily cap, and mute and off. It refuses an answer typed
 within seconds of the question. It never includes the answer key in a rep.
-Every failure answers with no rep rather than an error; `doctor` says why.
+Every failure returns no rep rather than an error; `doctor` says why.
 
 ## Tools
 
 | tool | what it does |
 | --- | --- |
 | `rep({ touched?, ask?, topic?, kind?, exclude? })` | one question, one insight, or nothing; `ask` takes a handle from an offer |
-| `answer({ pick, id? })` | the verdict, the why, and the offer line |
+| `answer({ pick, id? })` | the verdict, the explanation, and the offer line |
 | `me({ show? })` | `summary`, `skills`, `reps`, `streak` or `mutes` |
 | `settings({ intensity?, topics?, levels?, prefer?, mute?, muteMinutes?, days?, unmute?, dialog? })` | the rate, the pinned topics, the difficulty range, the preferred areas, mutes, the dialog |
 
@@ -99,10 +100,12 @@ reported by `doctor`; set `ATOMICREPS_UNSAFE_ORIGIN=1` to override.
 ## Login
 
 `npx atomicreps` prints a code. Type it at atomicreps.com/connect while
-signed in; a forwarded link approves nothing. The token lands in
+signed in; a forwarded link approves nothing. The token is saved in
 `~/.config/atomicreps/config.json` (mode 0600), prefixed `arep_` so secret
 scanners find it. You can revoke it from your account page. `logout` forgets
-it; `logout --purge` also deletes the reps and status this machine cached.
+it; `logout --purge` also deletes the reps and status this machine cached, then
+lists every editor entry `connect` wrote (both channels) and removes the ones you
+leave ticked.
 
 The trust boundary, and how to report a vulnerability: SECURITY.md.
 

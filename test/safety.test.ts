@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { sanitize, stripAnsi, visibleWidth } from "../src/ansi.js";
-import { letterOf } from "../src/hook.js";
+import { digitOf, letterOf } from "../src/hook.js";
 import { safeUrl } from "../src/screen.js";
 import { asPick } from "../src/types.js";
 
@@ -112,5 +112,12 @@ describe("the letter a rep is answered with", () => {
 
   it("ignores anything long enough to be a real message", () => {
     expect(letterOf(`A ${"x".repeat(80)}`)).toBeNull();
+  });
+
+  it("never reads the first line of a list as the answer", () => {
+    expect(letterOf("A\nB\nA\nA")).toBeNull();
+    expect(letterOf("A!\nsecond line")).toBeNull();
+    expect(letterOf("A\n")?.pick).toBe("A");
+    expect(digitOf("1\n2")).toBeNull();
   });
 });

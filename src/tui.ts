@@ -18,6 +18,7 @@ import {
   writeConfig,
 } from "./config.js";
 import {
+  type Applied,
   allowlistMissing,
   connectOffers,
   claudeAvailable,
@@ -85,6 +86,7 @@ import {
   type Pick,
   type ToolReply,
 } from "./types.js";
+import { leftovers } from "./unwire.js";
 import { isBehind, SERVER_VERSION } from "./version.js";
 import { bool, list, num, record, str } from "./wire.js";
 
@@ -557,7 +559,19 @@ export async function connect(interactive = isInteractive(), pin = false): Promi
     await pause();
     return;
   }
-  const done = chosen.map((offer) => ({ target: offer.target, ...offer.apply() }));
+  const done = chosen.map((offer) => ({ label: offer.target.label, ...offer.apply() }));
+  await appliedScreen(
+    done,
+    "Wired up.",
+    picked.value.has("manual") ? ["", ...manualLines().map((line) => paint(line, "faint"))] : [],
+  );
+}
+
+async function appliedScreen(
+  done: ReadonlyArray<Applied & { label: string }>,
+  allDone: string,
+  after: string[] = [],
+): Promise<void> {
   const worst = done.some((entry) => entry.state === "failed")
     ? "failed"
     : done.some((entry) => entry.state === "noted")
@@ -570,7 +584,7 @@ export async function connect(interactive = isInteractive(), pin = false): Promi
         : entry.state === "noted"
           ? paint("\u00b7", "gold")
           : paint("\u00d7", "red");
-    return `${glyph} ${entry.target.label}: ${entry.says}`;
+    return `${glyph} ${entry.label}: ${entry.says}`;
   };
   out([
     ...withLoop(worst === "failed" ? "thinking" : worst === "noted" ? "idle" : "celebrating", [
@@ -579,17 +593,45 @@ export async function connect(interactive = isInteractive(), pin = false): Promi
           ? "Some of it went through."
           : worst === "noted"
             ? "Done, with one to finish by hand."
-            : "Wired up.",
+            : allDone,
       ),
       "",
       ...done.slice(0, 3).map(row),
     ]),
     ...done.slice(3).map(row),
-    ...(picked.value.has("manual")
-      ? ["", ...manualLines().map((line) => paint(line, "faint"))]
-      : []),
+    ...after,
   ]);
   await pause();
+}
+
+export async function unwire(interactive = isInteractive()): Promise<void> {
+  const rows = leftovers();
+  if (rows.length === 0) return;
+  if (!interactive) {
+    plain([
+      "Still set up to launch Atomic Reps:",
+      ...rows.map((row) => `  ${row.label}: ${row.hint}`),
+      "Run npx atomicreps logout --purge in a terminal to remove them.",
+    ]);
+    return;
+  }
+  const picked = await pickMany({
+    items: rows.map(({ id, label, hint, detail }) => ({ id, label, hint, detail })),
+    picked: new Set(rows.map((row) => row.id)),
+    heading: "Remove Atomic Reps from your editors?",
+    intro:
+      "Signed out. These are the entries connect wrote on this machine. Enter removes the ticked ones; untick anything you want to keep.",
+    confirm: "remove these",
+    pose: "idle",
+  });
+  if (!picked.ok) return;
+  const chosen = rows.filter((row) => picked.value.has(row.id));
+  if (chosen.length === 0) return;
+  await appliedScreen(
+    chosen.map((row) => ({ label: row.label, ...row.remove() })),
+    "Nothing left behind.",
+    ["", paint("Restart your editors so they stop launching the old entries.", "faint")],
+  );
 }
 
 function claudePluginLine(): string {

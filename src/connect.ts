@@ -184,7 +184,7 @@ export function copilotAddCommand(pin = false): string {
   return `copilot ${copilotAddArgs(pin).join(" ")}`;
 }
 
-function runCli(
+export function runCli(
   found: boolean,
   command: string,
   args: string[],
@@ -215,7 +215,7 @@ export function agentTargets(pin = false): readonly AgentTarget[] {
       label: "\u2026and allow its four tools",
       hint: tilde(claudeSettingsPath()),
       detail:
-        "Adds rep, answer, me and settings to permissions.allow, so the first rep is not a permission prompt in front of your build. Everything else in the file is left alone.",
+        "Adds rep, answer, me and settings to permissions.allow, so the first rep does not stop your build with a permission prompt. Everything else in the file is left alone.",
       found: () => claudeAvailable(),
       done: () => allowlistMissing().length === 0,
       apply: () => {
@@ -235,7 +235,7 @@ export function agentTargets(pin = false): readonly AgentTarget[] {
       label: "…and a Claude Code status line",
       hint: tilde(claudeSettingsPath()),
       detail:
-        "The open question under the prompt, options and all, so a letter is one keystroke away. A status line you already have keeps printing first and ours comes under it; nothing else in the file changes.",
+        "Shows the open question and its options under the prompt, so you can answer with one keystroke. A status line you already have keeps printing first and ours comes under it; nothing else in the file changes.",
       found: () => claudeAvailable(),
       done: () => statusLineWired(claudeSettingsPath()),
       apply: () => wireStatusLine(claudeSettingsPath()),
@@ -294,7 +294,7 @@ export function agentTargets(pin = false): readonly AgentTarget[] {
       label: "I'll set it up myself",
       hint: "print the config, write nothing",
       detail:
-        "Another MCP client, something running locally, or a machine you would rather wire up by hand. Nothing is written; the server entry and the token page are printed for you to copy.",
+        "Another MCP client, something running locally, or a machine you would rather set up by hand. Nothing is written; the server entry and the token page are printed for you to copy.",
       found: () => true,
       apply: () => ({ state: "noted", says: "printed below" }),
     },

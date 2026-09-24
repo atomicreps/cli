@@ -26,8 +26,8 @@ private package name is sent as the public alias word it resolves through
 What never leaves: your code, the contents of any file, your prompts, your file
 paths, your branch names, your commit messages.
 
-`npx atomicreps setup` prints the exact payload for the repository you are
-standing in, before you sign in.
+`npx atomicreps setup` prints the exact payload for the repository in your
+current directory, before you sign in.
 
 ## The token
 

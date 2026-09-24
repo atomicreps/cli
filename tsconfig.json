@@ -1,15 +1,15 @@
 {
   // Stricter than tsconfig.base.json on purpose. This package is small, has no
   // dependencies and ships to other people's machines through npx, so the two
-  // flags the app tree parked as too expensive (noUncheckedIndexedAccess,
+  // flags the app tree left off as too expensive (noUncheckedIndexedAccess,
   // exactOptionalPropertyTypes) are free here and both are on.
   //
   // Everything below was measured against `tsc --noEmit` before landing and
   // costs zero errors. The one candidate NOT adopted, with its measured cost:
   //   noPropertyAccessFromIndexSignature  241 errors
   // It would turn every `params.name` on a wire record into `params["name"]`,
-  // which is louder than the bug it catches here (the records it would police
-  // are all read through typeof guards already). Parked, not forgotten.
+  // which costs more than the bug it catches here (the records it would check
+  // are all read through typeof guards already). Not adopted for now.
   "compilerOptions": {
     "target": "ES2024",
     "module": "NodeNext",

@@ -1,6 +1,6 @@
 {
   "name": "atomicreps",
-  "version": "0.0.14",
+  "version": "0.0.15",
   "description": "One short retrieval question about the thing you just built, inside Claude Code, GitHub Copilot, Cursor, Codex or any MCP client. Loop included.",
   "license": "MIT",
   "type": "module",

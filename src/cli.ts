@@ -6,7 +6,7 @@ import { serve } from "./mcp.js";
 import { isInteractive } from "./screen.js";
 import { statusLine } from "./statusline.js";
 import { purgeLocalData } from "./store.js";
-import { connect, doctor, home, login } from "./tui.js";
+import { connect, doctor, home, login, unwire } from "./tui.js";
 import { SERVER_VERSION } from "./version.js";
 
 const HELP = `atomicreps - one short rep about the thing you just built, inside your coding agent.
@@ -14,12 +14,12 @@ const HELP = `atomicreps - one short rep about the thing you just built, inside 
   npx atomicreps            the CLI: you, this session, topics, mutes, rate
   npx atomicreps setup      the first-run wizard: what to practise, how often, how hard
   npx atomicreps login      sign in from a browser with a typed code
-  npx atomicreps connect    pick which editors to wire up; writes nothing you did not pick
+  npx atomicreps connect    pick which editors to configure; writes nothing you did not pick
   npx atomicreps connect --pin   pin the launch args to this installed version, for a command you can commit
   npx atomicreps mcp        the MCP server the editor launches
-  npx atomicreps doctor     token, server ping, quiet clock, allowlist
+  npx atomicreps doctor     token, server ping, when the next rep may come, allowlist
   npx atomicreps logout     forget the token on this machine
-  npx atomicreps logout --purge   also forget your reps and status; for a shared machine
+  npx atomicreps logout --purge   also forget your reps and status, and offer to undo connect
   npx atomicreps hook       the Claude Code plugin's Stop and UserPromptSubmit hook (stdin JSON in, JSON out)
   npx atomicreps statusline one line for a Claude Code status line
 
@@ -68,7 +68,8 @@ async function main(raw: string[]): Promise<number> {
       return -1;
     case "login": {
       const ok = await login(isInteractive());
-      if (ok) process.stdout.write("Signed in. Run npx atomicreps connect to wire an editor.\n");
+      if (ok)
+        process.stdout.write("Signed in. Run npx atomicreps connect to configure an editor.\n");
       if (ok) pluginHint();
       return ok ? 0 : 1;
     }
@@ -114,6 +115,7 @@ async function main(raw: string[]): Promise<number> {
           ? "Signed out and forgot your reps and status on this machine.\n"
           : "Signed out on this machine.\n",
       );
+      if (purge) await unwire();
       return 0;
     }
     case "help":
