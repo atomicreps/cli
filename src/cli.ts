@@ -1,3 +1,4 @@
+import "./node-guard.js";
 import { launchChannel, readConfig, setChannel, signedInOn, writeConfig } from "./config.js";
 import { ENV } from "./constants.js";
 import { refreshGrammar, runHook } from "./hook.js";

@@ -105,7 +105,8 @@ describe("the letter a rep is answered with", () => {
   it("reads the letter out of a prompt the same way", () => {
     expect(letterOf("B")?.pick).toBe("B");
     expect(letterOf("c.")?.pick).toBe("C");
-    expect(letterOf(" d) because")?.pick).toBe("D");
+    expect(letterOf(" d) ")?.pick).toBe("D");
+    expect(letterOf(" d) because"), "a letter with a reason is a message").toBeNull();
     expect(letterOf("E")).toBeNull();
     expect(letterOf("f)")).toBeNull();
   });

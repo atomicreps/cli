@@ -98,8 +98,7 @@ describe("atomicreps hook", () => {
     const fetchSpy = vi.fn();
     vi.stubGlobal("fetch", fetchSpy);
     const out = await hook.runHook(input("refactor the auth module"));
-    expect(contextOf(out)).toBe(hook.QUIET_CONTEXT);
-    expect(hook.QUIET_CONTEXT).not.toContain("⚛");
+    expect(out, "no context at all, so no tokens on every prompt").toBeNull();
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
@@ -178,6 +177,7 @@ describe("atomicreps hook", () => {
     expect(contextOf(out)).toBeUndefined();
     expect(store.pendingRep()?.id).toBe("q1");
     expect((config.readConfig().nextEligibleAt ?? 0) > Date.now()).toBe(true);
+    expect(config.readConfig().armedRep, "the next letter answers it").toEqual({ id: "q1" });
   });
 
   function holdOpen(id = "q7"): void {
@@ -330,7 +330,11 @@ describe("atomicreps hook", () => {
 
   it("grades a single letter against the pending rep and hands the verdict over", async () => {
     const { hook, config, store } = await load();
-    config.writeConfig({ token: "arep_test", nextEligibleAt: Date.now() + 60_000 });
+    config.writeConfig({
+      token: "arep_test",
+      nextEligibleAt: Date.now() + 60_000,
+      armedRep: { id: "q1" },
+    });
     store.observeRep(
       { kind: "question", id: "q1", topicSlug: "react" },
       BLOCK,
@@ -365,14 +369,18 @@ describe("atomicreps hook", () => {
     expect(store.pendingRep()).toBeUndefined();
 
     const again = await hook.runHook(input("b"));
-    expect(contextOf(again)).toBe(hook.QUIET_CONTEXT);
+    expect(again).toBeNull();
     expect(answerSpy).toHaveBeenCalledTimes(1);
     expect(store.openOffer()).toEqual([{ handle: "css.grid", name: "CSS · Grid" }]);
   });
 
   it("closes a rep the server says was answered elsewhere, and tells the agent so", async () => {
     const { hook, config, store } = await load();
-    config.writeConfig({ token: "arep_test", nextEligibleAt: Date.now() + 60_000 });
+    config.writeConfig({
+      token: "arep_test",
+      nextEligibleAt: Date.now() + 60_000,
+      armedRep: { id: "q1" },
+    });
     store.observeRep(
       { kind: "question", id: "q1", topicSlug: "react" },
       BLOCK,
@@ -407,7 +415,11 @@ describe("atomicreps hook", () => {
     });
     vi.stubGlobal("fetch", verdict);
     for (const [index, typed] of ["A!", "b?", "C"].entries()) {
-      config.writeConfig({ token: "arep_test", nextEligibleAt: Date.now() + 60_000 });
+      config.writeConfig({
+        token: "arep_test",
+        nextEligibleAt: Date.now() + 60_000,
+        armedRep: { id: `q${String(index)}` },
+      });
       store.observeRep(
         { kind: "question", id: `q${String(index)}`, topicSlug: "react" },
         BLOCK,
@@ -475,7 +487,7 @@ describe("atomicreps hook", () => {
       Date.now(),
     );
     const none = await hook.runHook(input("2"));
-    expect(contextOf(none)).toBe(hook.QUIET_CONTEXT);
+    expect(none).toBeNull();
     expect(askSpy).toHaveBeenCalledTimes(1);
   });
 
@@ -613,6 +625,51 @@ describe("the cached clock never outlives the server", () => {
     expect(locallyQuiet(kept, now + MAX_LOCAL_QUIET_MS), "past it, go and ask").toBe(false);
     expect(locallyQuiet(now - 1, now), "already past").toBe(false);
     expect(locallyQuiet(now + MAX_LOCAL_QUIET_MS + 1, now), "past the ceiling, ask").toBe(false);
+  });
+});
+
+describe("a letter answers only the rep on screen", () => {
+  it("a prompt in between moves the screen on, and a later letter goes to the agent", async () => {
+    const { hook, config, store } = await load();
+    config.writeConfig({ token: "arep_test" });
+    const door = repDoor({ version: "0.0.0", notes: "" });
+    vi.stubGlobal("fetch", door);
+    expect(messageOf(await hook.runHook(stopIn()))).toContain("Which hook?");
+    expect(await hook.runHook(input("a quick fix please")), "a sentence, not an A").toBeNull();
+    expect(await hook.runHook(input("A")), "stale: the agent answers it through MCP").toBeNull();
+    expect(door, "no answer was sent").toHaveBeenCalledTimes(1);
+    expect(store.pendingRep()?.id, "still open for the answer tool").toBe("q1");
+  });
+
+  it("a rep handed to the agent stays armed through the Stop that ends its reply", async () => {
+    const { hook, config, store } = await load();
+    config.writeConfig({ token: "arep_test", nextEligibleAt: Date.now() + 60_000 });
+    store.observeRep({ kind: "question", id: "q1", topicSlug: "react" }, BLOCK, Date.now());
+    store.observeVerdict(
+      "q1",
+      { status: "answered", correct: true, offer: [{ handle: "css.grid", name: "CSS · Grid" }] },
+      "verdict",
+      Date.now(),
+    );
+    const paths: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        const path = new URL(url).pathname;
+        paths.push(path);
+        const data =
+          path === "/mcp/rep"
+            ? { kind: "question", id: "q2", topicSlug: "css", lane: "asked", offer: [] }
+            : { status: "answered", correct: true, offer: [] };
+        return new Response(JSON.stringify({ text: BLOCK, data }), {
+          headers: { "content-type": "application/json" },
+        });
+      }),
+    );
+    expect(contextOf(await hook.runHook(input("1")))).toContain(hook.ASKED_ETIQUETTE);
+    expect(await hook.runHook(stopIn()), "the clock runs, so the Stop prints nothing").toBeNull();
+    expect(contextOf(await hook.runHook(input("B")))).toContain(hook.VERDICT_ETIQUETTE);
+    expect(paths).toEqual(["/mcp/rep", "/mcp/answer"]);
   });
 });
 

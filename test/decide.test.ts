@@ -20,7 +20,18 @@ function reprinted(shown: number): StoredRep {
 }
 
 function given(patch: Partial<HookState> = {}): HookState {
-  return { hasToken: true, nextEligibleAt: undefined, pending: undefined, offer: [], ...patch };
+  return {
+    hasToken: true,
+    nextEligibleAt: undefined,
+    pending: undefined,
+    armed: undefined,
+    offer: [],
+    ...patch,
+  };
+}
+
+function onScreen(patch: Partial<HookState> = {}): HookState {
+  return given({ pending: served(), armed: "q1", ...patch });
 }
 
 function typed(text: string): HookInput {
@@ -44,10 +55,10 @@ const CASES: ReadonlyArray<
     "an event name the editor left out is a prompt, the older contract",
     { prompt: "done with the form", cwd: "/repo" },
     given(),
-    { kind: "quiet" },
+    { kind: "ignore" },
   ],
   [
-    "a pull through the server's own prompt gets nothing from the hook, not even the quiet line",
+    "a pull through the server's own prompt gets nothing from the hook",
     typed("/mcp__atomicreps-alpha__rep react"),
     given(),
     { kind: "ignore" },
@@ -62,7 +73,7 @@ const CASES: ReadonlyArray<
     "another server's prompt is an ordinary prompt",
     typed("/mcp__github__issue 12"),
     given(),
-    { kind: "quiet" },
+    { kind: "ignore" },
   ],
   [
     "a Stop never grades, even one whose last message is a letter",
@@ -70,65 +81,90 @@ const CASES: ReadonlyArray<
     given({ pending: served() }),
     { kind: "remind", rep: served(), cwd: "/repo" },
   ],
+  ["a Stop with no token is nothing", stopped(), given({ hasToken: false }), { kind: "ignore" }],
   [
-    "a Stop with no token is nothing, never the quiet line",
-    stopped(),
-    given({ hasToken: false }),
+    "no token is nothing, whatever the prompt looks like",
+    typed("B"),
+    given({ hasToken: false, pending: served(), armed: "q1" }),
     { kind: "ignore" },
   ],
   [
-    "no token is quiet, whatever the prompt looks like",
-    typed("B"),
-    given({ hasToken: false, pending: served() }),
-    { kind: "quiet" },
+    "a letter right after the rep was printed grades that rep",
+    typed("b)"),
+    onScreen(),
+    { kind: "grade", id: "q1", pick: "B" },
   ],
   [
-    "a letter with a rep pending grades that rep",
-    typed("b) useRef"),
-    given({ pending: served() }),
-    { kind: "grade", id: "q1", pick: "B" },
+    "a letter with a full stop is still the letter",
+    typed("a."),
+    onScreen(),
+    { kind: "grade", id: "q1", pick: "A" },
   ],
   [
     "a letter with ! is that letter, and the user saying they were sure",
     typed("A!"),
-    given({ pending: served() }),
+    onScreen(),
     { kind: "grade", id: "q1", pick: "A", sure: true },
   ],
   [
     "a letter with ? is that letter, and the user saying they were not",
     typed("b?"),
-    given({ pending: served() }),
+    onScreen(),
     { kind: "grade", id: "q1", pick: "B", sure: false },
   ],
   [
     "no suffix says nothing about how sure they were, which is not the same as unsure",
     typed("A"),
-    given({ pending: served() }),
+    onScreen(),
     { kind: "grade", id: "q1", pick: "A" },
+  ],
+  [
+    "a short sentence that starts with a letter is a sentence",
+    typed("a quick fix please"),
+    onScreen(),
+    { kind: "ignore" },
+  ],
+  [
+    "a letter with a reason after it is a message for the agent",
+    typed("B because it re-renders"),
+    onScreen(),
+    { kind: "ignore" },
+  ],
+  [
+    "a pending rep the conversation has moved past is not graded, however bare the letter",
+    typed("A"),
+    given({ pending: served() }),
+    { kind: "ignore" },
+  ],
+  [
+    "a letter armed for another rep does not grade this one",
+    typed("A"),
+    given({ pending: served(), armed: "q0" }),
+    { kind: "ignore" },
   ],
   [
     "a doubled suffix is not the footer's ask and grades nothing",
     typed("A!!"),
-    given({ pending: served() }),
-    { kind: "quiet" },
+    onScreen(),
+    { kind: "ignore" },
   ],
   [
     "a word that begins with a letter is still a word",
     typed("Absolutely"),
-    given({ pending: served() }),
-    { kind: "quiet" },
+    onScreen(),
+    { kind: "ignore" },
   ],
   [
     "a letter with nothing pending falls through to the clock",
     typed("B"),
     given({ nextEligibleAt: NOW + 60_000 }),
-    { kind: "quiet" },
+    { kind: "ignore" },
   ],
   [
     "a letter with nothing pending and the clock spent is an ordinary prompt",
     typed("B"),
     given(),
-    { kind: "quiet" },
+    { kind: "ignore" },
   ],
   [
     "a digit under an open offer takes that entry",
@@ -140,13 +176,13 @@ const CASES: ReadonlyArray<
     "a digit while a rep is pending is not an offer digit",
     typed("2"),
     given({ pending: served(), offer: OFFER }),
-    { kind: "quiet" },
+    { kind: "ignore" },
   ],
   [
     "a digit past the end of the offer falls through to the clock",
     typed("3"),
     given({ offer: OFFER, nextEligibleAt: NOW + 60_000 }),
-    { kind: "quiet" },
+    { kind: "ignore" },
   ],
   [
     "a running clock is nothing",
@@ -209,10 +245,10 @@ const CASES: ReadonlyArray<
     { kind: "push", cwd: "/repo" },
   ],
   [
-    "an ordinary prompt with nothing in the way is the quiet line, never a push",
+    "an ordinary prompt with nothing in the way is nothing, never a push",
     typed("done with the form"),
     given(),
-    { kind: "quiet" },
+    { kind: "ignore" },
   ],
 ];
 

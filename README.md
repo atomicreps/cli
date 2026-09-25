@@ -2,6 +2,9 @@
 
 One short question about the thing you just built. Works inside Claude Code, GitHub Copilot, Cursor, Codex, or any MCP client.
 
+Requires Node 24+ and a free account. On an older Node, every command prints
+the version it needs instead of starting.
+
 ```
 npx atomicreps            the terminal screen: you, this session, topics, mutes, rate
 npx atomicreps setup      first-run wizard: areas, topics, how often, how hard

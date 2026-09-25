@@ -643,7 +643,7 @@ function claudePluginLine(): string {
   );
   return names.length > 0
     ? `claude plugin: ${names.join(", ")}`
-    : "claude plugin: not installed (the Stop hook that sends an automatic rep after a turn comes with it)";
+    : "plugin: not listed yet; the MCP server is all you need";
 }
 
 export async function doctor(): Promise<number> {

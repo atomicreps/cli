@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.0.16
+
+- On a Node version older than 24, every command now prints the Node version it needs and stops, instead of starting and then failing with a stack trace. The Claude Code hook prints nothing and exits cleanly, so your editor keeps working, and the status line reads "atomicreps needs Node 24+".
+- The Claude Code plugin grades a letter only when the letter is your whole message (`!`, `?`, `.` or `)` after it is fine) and you send it right after the rep appeared. "a quick fix please" is no longer read as an answer of A. A letter you send after the conversation has moved on goes to your agent, which can still answer the rep through the MCP server.
+- The plugin no longer adds a line to your agent's context on every message you send. A message that has nothing to do with reps now costs no tokens.
+- The plugin no longer tells your agent that the verdict must be its whole reply.
+- `doctor` no longer says the plugin is "not installed". The plugin is not in a public marketplace yet, and the MCP server is all you need.
+
 ## 0.0.15
 
 - `npx atomicreps logout --purge` now offers to remove what `connect` set up. After signing you out, it lists every editor entry `connect` wrote on this machine, all ticked: the Claude Code server, its four allowed tools and its status line, and the entries for Codex, VS Code, Copilot CLI, Cursor and Windsurf. Enter removes the ticked ones, and a row you untick stays. If you had your own status line before, it comes back. Before this, signing out left every editor still starting the old server, and signing in again added a second server next to it.

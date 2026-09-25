@@ -149,6 +149,7 @@ export type Config = {
   elicitationCapable?: boolean;
   setupAt?: EpochMs;
   lastPushTouch?: string;
+  armedRep?: { id: string; viaModel?: true } | undefined;
   bridgeVersion?: string | undefined;
   budget?: Record<string, Bucket>;
 };
