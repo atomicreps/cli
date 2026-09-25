@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.0.17
+
+- The setup wizard's step about where you answer is clearer. It now says what the pop-up option is for: when your editor shows the question in its own window, your agent never sees the question or your answer, so it cannot hint at the answer. The step no longer mentions an "Off" choice that was not on the screen.
+
 ## 0.0.16
 
 - On a Node version older than 24, every command now prints the Node version it needs and stops, instead of starting and then failing with a stack trace. The Claude Code hook prints nothing and exits cleanly, so your editor keeps working, and the status line reads "atomicreps needs Node 24+".

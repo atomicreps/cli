@@ -236,7 +236,7 @@ export async function levelsScreen(draft: Draft, stepLine?: string): Promise<Pic
 }
 
 const DIALOG_INTRO =
-  "Your editor can pop up its own box for the letter and read the answer back, so neither the question nor your answer passes through the chat. Off leaves it in the chat, the way it works today.";
+  "Your editor can show the question in its own pop-up window. The assistant then never sees the question or your answer, so it cannot hint at the answer.";
 
 export async function dialogScreen(draft: Draft, stepLine?: string): Promise<PickResult<Draft>> {
   const picked = await pickOne<boolean>({
@@ -244,16 +244,16 @@ export async function dialogScreen(draft: Draft, stepLine?: string): Promise<Pic
       {
         value: false,
         label: "In the chat",
-        hint: "The letter shows up in the conversation, same as now.",
+        hint: "The question appears in the conversation and you reply with a letter. This is the default.",
       },
       {
         value: true,
-        label: "In a native dialog",
-        hint: "Your editor asks for the letter its own way; it blocks the turn until answered.",
+        label: "In a pop-up",
+        hint: "Your editor opens a window for the question. The assistant waits until you answer or close it.",
       },
     ],
     current: draft.dialog ?? false,
-    heading: "Where should the answer go?",
+    heading: "Where do you want to answer?",
     intro: DIALOG_INTRO,
     stepLine,
   });
@@ -292,7 +292,7 @@ export function draftLines(draft: Draft, names: ReadonlyMap<string, string> = ne
     `Areas: ${scope}.`,
     `Rate: ${cadence?.says ?? draft.intensity}.`,
     `Depth: ${band}.`,
-    ...(draft.dialog === undefined ? [] : [`Answer: ${draft.dialog ? "native dialog" : "chat"}.`]),
+    ...(draft.dialog === undefined ? [] : [`Answer: ${draft.dialog ? "pop-up" : "chat"}.`]),
   ];
 }
 

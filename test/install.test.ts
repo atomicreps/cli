@@ -124,7 +124,7 @@ describe("the summary screen", () => {
   });
 
   it("names the answer dialog once the wizard asked", () => {
-    expect(draftLines({ ...DEFAULT_DRAFT, dialog: true }).at(-1)).toBe("Answer: native dialog.");
+    expect(draftLines({ ...DEFAULT_DRAFT, dialog: true }).at(-1)).toBe("Answer: pop-up.");
     expect(draftLines({ ...DEFAULT_DRAFT, dialog: false }).at(-1)).toBe("Answer: chat.");
   });
 });
