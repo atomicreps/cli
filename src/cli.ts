@@ -76,7 +76,8 @@ async function main(raw: string[]): Promise<number> {
     }
     case "hook": {
       try {
-        const [output] = await Promise.all([runHook(await readStdin()), refreshGrammar()]);
+        const event = await readStdin();
+        const [output] = await Promise.all([runHook(event), refreshGrammar(event)]);
         if (output) process.stdout.write(`${JSON.stringify(output)}\n`);
       } catch {
       }

@@ -25,6 +25,9 @@ export function plainBlock(text: string): string[] {
       case "option":
         out.push(`${token.letter}. ${plainSpans(token.text)}`);
         continue;
+      case "verdict":
+        out.push(`${token.correct ? "✅" : "❌"} ${token.outcome}${plainSpans(token.text)}`);
+        continue;
       case "text":
         out.push(plainSpans(token.text));
         continue;
@@ -78,6 +81,7 @@ export function verdictLineOf(text: string): string {
 
 const FENCE_LINE = /^```/;
 const HEADER_LINE = /^⚛ \*\*(.*)\*\*$/;
+const VERDICT_LINE = /^(✅|❌) \*\*(.+?)\*\*(.*)$/;
 const OPTION_ROW = /^([A-D])\.\s+(.*)$/;
 const NOTE_LINE = /^_(.+)_$/;
 const SPAN = /\*\*(.+?)\*\*|`([^`]+)`/g;
@@ -86,6 +90,12 @@ export type Span = { readonly kind: "text" | "bold" | "code"; readonly text: str
 
 export type BlockToken =
   | { readonly kind: "header"; readonly text: string }
+  | {
+      readonly kind: "verdict";
+      readonly correct: boolean;
+      readonly outcome: string;
+      readonly text: string;
+    }
   | { readonly kind: "rule" }
   | { readonly kind: "blank" }
   | { readonly kind: "fence" }
@@ -123,6 +133,12 @@ export function tokenizeBlock(text: string): BlockToken[] {
     const header = HEADER_LINE.exec(line);
     if (header?.[1] !== undefined) {
       tokens.push({ kind: "header", text: header[1] });
+      continue;
+    }
+    const verdict = VERDICT_LINE.exec(line);
+    if (verdict?.[2] !== undefined) {
+      const [, mark, outcome, rest = ""] = verdict;
+      tokens.push({ kind: "verdict", correct: mark === "✅", outcome, text: rest });
       continue;
     }
     const option = OPTION_ROW.exec(line);
@@ -250,3 +266,10 @@ export const FALLBACK_TOOLS = [
     },
   },
 ] as const satisfies readonly FallbackTool[];
+
+export const SHARE_LABEL = "Share this question:";
+
+export function shareUrlOf(data: Record<string, unknown>): string | null {
+  const url = data.shareUrl;
+  return typeof url === "string" && url.startsWith("https://") ? url : null;
+}

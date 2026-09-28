@@ -19,6 +19,7 @@ beforeEach(() => {
   process.env.ATOMICREPS_API = "https://example.invalid";
   claudeHome = mkdtempSync(join(tmpdir(), "atomicreps-claude-"));
   process.env.CLAUDE_CONFIG_DIR = claudeHome;
+  delete process.env.CLAUDE_CODE_ENTRYPOINT;
   vi.resetModules();
 });
 
@@ -199,10 +200,10 @@ describe("atomicreps hook", () => {
     );
   }
 
-  function doorSaying(data: Record<string, unknown>, text = "") {
+  function doorSaying(data: Record<string, unknown>, text = "", client?: Record<string, unknown>) {
     return vi.fn(
       async (_url: string, _init?: RequestInit) =>
-        new Response(JSON.stringify({ text, data }), {
+        new Response(JSON.stringify({ text, data, ...(client === undefined ? {} : { client }) }), {
           headers: { "content-type": "application/json" },
         }),
     );
@@ -212,7 +213,11 @@ describe("atomicreps hook", () => {
     const { hook, config, store } = await load();
     holdOpen();
     config.writeConfig({ token: "arep_test" });
-    const fetchSpy = doorSaying({ kind: "open", id: "q7", nextEligibleAt: Date.now() + 3_600_000 });
+    const fetchSpy = doorSaying(
+      { kind: "open", id: "q7", nextEligibleAt: Date.now() + 3_600_000 },
+      "",
+      { slotsSpent: 2 },
+    );
     vi.stubGlobal("fetch", fetchSpy);
 
     const out = await hook.runHook(stopIn());
@@ -232,6 +237,18 @@ describe("atomicreps hook", () => {
       (config.readConfig().nextEligibleAt ?? 0) > Date.now(),
       "and it is not said again on the very next turn",
     ).toBe(true);
+  });
+
+  it("counts one slot when the server does not say how many an open reply spent", async () => {
+    const { hook, config, store } = await load();
+    holdOpen();
+    config.writeConfig({ token: "arep_test" });
+    vi.stubGlobal(
+      "fetch",
+      doorSaying({ kind: "open", id: "q7", nextEligibleAt: Date.now() + 3_600_000 }),
+    );
+    await hook.runHook(stopIn());
+    expect(store.listReps().at(-1)?.shown, "no parity rule of its own").toBe(1);
   });
 
   it("prints the insight the server offers on a reminder slot, and keeps the rep pending", async () => {
@@ -328,7 +345,7 @@ describe("atomicreps hook", () => {
     expect((config.readConfig().nextEligibleAt ?? 0) > Date.now()).toBe(true);
   });
 
-  it("grades a single letter against the pending rep and hands the verdict over", async () => {
+  it("grades a single letter, tells the agent only that, and prints the verdict when the turn ends", async () => {
     const { hook, config, store } = await load();
     config.writeConfig({
       token: "arep_test",
@@ -364,14 +381,20 @@ describe("atomicreps hook", () => {
     vi.stubGlobal("fetch", answerSpy);
     const out = await hook.runHook(input("b"));
     expect(answerSpy).toHaveBeenCalledTimes(1);
-    expect(contextOf(out)).toContain(hook.VERDICT_ETIQUETTE);
-    expect(contextOf(out)).toContain("**Correct** · useRef");
+    expect(contextOf(out)).toBe(hook.recordedContext(false));
+    expect(contextOf(out), "the agent never renders the verdict").not.toContain("useRef");
     expect(store.pendingRep()).toBeUndefined();
 
     const again = await hook.runHook(input("b"));
     expect(again).toBeNull();
     expect(answerSpy).toHaveBeenCalledTimes(1);
     expect(store.openOffer()).toEqual([{ handle: "css.grid", name: "CSS · Grid" }]);
+
+    const shown = messageOf(await hook.runHook(stopIn("Shall I carry on?")));
+    expect(shown, "printed even after a question: the user asked for it").toContain("Correct");
+    expect(shown).toContain("useRef");
+    expect(await hook.runHook(stopIn()), "printed once").toBeNull();
+    expect(answerSpy).toHaveBeenCalledTimes(1);
   });
 
   it("closes a rep the server says was answered elsewhere, and tells the agent so", async () => {
@@ -394,7 +417,7 @@ describe("atomicreps hook", () => {
     );
     vi.stubGlobal("fetch", refused);
     const out = await hook.runHook(input("b"));
-    expect(contextOf(out)).toBe(hook.RESOLVED_CONTEXT);
+    expect(contextOf(out)).toBe(hook.resolvedContext(false));
     expect(store.pendingRep(), "no longer open, so no more reminders").toBeUndefined();
     expect(await hook.runHook(stopIn()), "and the Stop does not say it again").toBeNull();
     expect(refused).toHaveBeenCalledTimes(1);
@@ -478,8 +501,11 @@ describe("atomicreps hook", () => {
     vi.stubGlobal("fetch", askSpy);
     const out = await hook.runHook(input("2"));
     expect(askSpy).toHaveBeenCalledTimes(1);
-    expect(contextOf(out)).toContain(hook.ASKED_ETIQUETTE);
+    expect(contextOf(out)).toBe(hook.ASKED_CONTEXT);
     expect(store.pendingRep()?.id).toBe("q2");
+    expect(messageOf(await hook.runHook(stopIn())), "the hook prints it, not the agent").toContain(
+      "Which hook?",
+    );
     store.observeVerdict(
       "q2",
       { status: "answered", correct: false, offer: [] },
@@ -641,7 +667,7 @@ describe("a letter answers only the rep on screen", () => {
     expect(store.pendingRep()?.id, "still open for the answer tool").toBe("q1");
   });
 
-  it("a rep handed to the agent stays armed through the Stop that ends its reply", async () => {
+  it("an asked-for rep prints at the Stop, and the letter after it grades that rep", async () => {
     const { hook, config, store } = await load();
     config.writeConfig({ token: "arep_test", nextEligibleAt: Date.now() + 60_000 });
     store.observeRep({ kind: "question", id: "q1", topicSlug: "react" }, BLOCK, Date.now());
@@ -666,10 +692,100 @@ describe("a letter answers only the rep on screen", () => {
         });
       }),
     );
-    expect(contextOf(await hook.runHook(input("1")))).toContain(hook.ASKED_ETIQUETTE);
-    expect(await hook.runHook(stopIn()), "the clock runs, so the Stop prints nothing").toBeNull();
-    expect(contextOf(await hook.runHook(input("B")))).toContain(hook.VERDICT_ETIQUETTE);
+    expect(contextOf(await hook.runHook(input("1")))).toBe(hook.ASKED_CONTEXT);
+    expect(messageOf(await hook.runHook(stopIn())), "printed though the clock runs").toContain(
+      "Which hook?",
+    );
+    expect(contextOf(await hook.runHook(input("B")))).toBe(hook.recordedContext(false));
     expect(paths).toEqual(["/mcp/rep", "/mcp/answer"]);
+  });
+
+  it("a letter on the first line answers, and the message after it goes to the agent", async () => {
+    const { hook, config, store } = await load();
+    config.writeConfig({
+      token: "arep_test",
+      nextEligibleAt: Date.now() + 60_000,
+      armedRep: { id: "q1" },
+    });
+    store.observeRep(
+      { kind: "question", id: "q1", topicSlug: "react" },
+      BLOCK,
+      Date.now() - 10_000,
+    );
+    const bodies: unknown[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        bodies.push(JSON.parse(String(init?.body)));
+        return new Response(
+          JSON.stringify({
+            text: "✅ **Correct** · useRef",
+            data: { status: "answered", correct: true, offer: [] },
+          }),
+          { headers: { "content-type": "application/json" } },
+        );
+      }),
+    );
+    const out = await hook.runHook(input("A!\nAlso, rename the route to /reports."));
+    expect(bodies).toEqual([{ id: "q1", pick: "A", sure: true }]);
+    expect(contextOf(out)).toBe(hook.recordedContext(true));
+    expect(messageOf(await hook.runHook(stopIn()))).toContain("Correct");
+  });
+});
+
+describe("a turn boundary inside the work", () => {
+  function stopWith(tasks: ReadonlyArray<{ id: string; type: string }>): string {
+    return JSON.stringify({
+      hook_event_name: "Stop",
+      last_assistant_message: "Launched.",
+      cwd: configHome,
+      background_tasks: tasks.map((task) => ({ ...task, status: "running" })),
+      session_crons: [],
+    });
+  }
+
+  it("opens no socket while a subagent the turn launched is still running, and asks once it is done", async () => {
+    const { hook, config } = await load();
+    config.writeConfig({ token: "arep_test" });
+    const door = repDoor({ version: "0.0.0", notes: "" });
+    vi.stubGlobal("fetch", door);
+    expect(await hook.runHook(stopWith([{ id: "a1", type: "subagent" }]))).toBeNull();
+    expect(await hook.runHook(stopWith([{ id: "b1", type: "shell" }]))).toBeNull();
+    expect(door).not.toHaveBeenCalled();
+    expect(messageOf(await hook.runHook(stopWith([])))).toContain("Which hook?");
+  });
+
+  it("stops waiting on a task the stale limit after it was first seen", async () => {
+    const { hook, config } = await load();
+    const { BACKGROUND_STALE_MS } = await import("../src/constants.js");
+    config.writeConfig({ token: "arep_test" });
+    const door = repDoor({ version: "0.0.0", notes: "" });
+    vi.stubGlobal("fetch", door);
+    const dev = [{ id: "dev", type: "shell" }];
+    const start = Date.now();
+    expect(await hook.runHook(stopWith(dev), start)).toBeNull();
+    expect(await hook.runHook(stopWith(dev), start + BACKGROUND_STALE_MS - 1)).toBeNull();
+    expect(door).not.toHaveBeenCalled();
+    expect(messageOf(await hook.runHook(stopWith(dev), start + BACKGROUND_STALE_MS))).toContain(
+      "Which hook?",
+    );
+  });
+
+  it("does nothing at all in a headless run, and leaves the person's armed rep alone", async () => {
+    const { hook, config, store } = await load();
+    config.writeConfig({ token: "arep_test", armedRep: { id: "q1" } });
+    store.observeRep({ kind: "question", id: "q1", topicSlug: "react" }, BLOCK, Date.now());
+    const door = vi.fn();
+    vi.stubGlobal("fetch", door);
+    process.env.CLAUDE_CODE_ENTRYPOINT = "sdk-cli";
+    try {
+      expect(await hook.runHook(stopIn())).toBeNull();
+      expect(await hook.runHook(input("A"))).toBeNull();
+    } finally {
+      delete process.env.CLAUDE_CODE_ENTRYPOINT;
+    }
+    expect(door).not.toHaveBeenCalled();
+    expect(config.readConfig().armedRep).toEqual({ id: "q1" });
   });
 });
 

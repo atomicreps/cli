@@ -40,6 +40,9 @@ export const REMIND_LIMIT = 6;
 export const REMIND_GAP_MS = 20 * 60_000;
 export const VERDICT_SHOWN_MS = 10 * 60_000;
 export const OFFER_TTL_MS = 30 * 60_000;
+export const HELD_TTL_MS = PENDING_TTL_MS;
+export const BACKGROUND_STALE_MS = 2 * 60 * 60_000;
+export const BACKGROUND_SEEN_KEPT_MS = 24 * 60 * 60_000;
 export const REPS_KEPT = 20;
 
 export const MS_PER_MINUTE = 60_000;
@@ -120,6 +123,7 @@ export const ENV = {
   client: "ATOMICREPS_CLIENT",
   pluginHint: "ATOMICREPS_PLUGIN_HINT",
   unsafeOrigin: "ATOMICREPS_UNSAFE_ORIGIN",
+  claudeEntrypoint: "CLAUDE_CODE_ENTRYPOINT",
 } as const;
 
 export const MODERN_VERSION = "2026-07-28";
@@ -149,8 +153,8 @@ export const SHOW_CURSOR = "[?25h";
 export const MAX_LINE = 4000;
 export const ART_WIDTH = 19;
 export const ART_GUTTER = 21;
-export const ART_WIDTH_WIDE = 26;
-export const ART_GUTTER_WIDE = 29;
+export const ART_WIDTH_WIDE = 32;
+export const ART_GUTTER_WIDE = 35;
 export const STREAK_DOTS = 7;
 export const STAT_LABEL = 10;
 export const PROBE_MS = 2000;

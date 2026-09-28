@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.0.18
+
+- In Claude Code, a question no longer appears while a subagent, workflow or background command that Claude started is still running. When Claude's turn ends with background work still running, the task is not finished: the background work reports back and Claude starts again, often before you have read the question. The question waits for the first turn end after the last background task finishes. A task still running two hours after the plugin first saw it, such as a dev server, no longer holds questions back.
+- Subagents and headless runs (`claude -p`, the Agent SDK) never get a question. Nobody reads those sessions, and a question printed there used up one of your day's questions.
+- Your letter no longer interrupts Claude. The plugin grades it, tells Claude only that the answer is recorded, and prints the verdict in your terminal when Claude's turn ends. If you send the letter while Claude is working, Claude carries on with the work instead of stopping to show you the verdict. Asking for another question by number works the same way.
+- You can answer and send a message together: put the letter alone on the first line and write your message below it. Claude acts on the message. This replaces the 0.0.15 rule that a message of several lines is never an answer. A list of letters, one per line, is still a message for Claude.
+- Loop is drawn by hand for the terminal now. The old picture was the website's drawing shrunk to a few dozen pixels, and it looked like a skull. On the home screen he blinks and moves his gills while he waits, and in Apple Terminal his vest is navy instead of teal.
+
 ## 0.0.17
 
 - The setup wizard's step about where you answer is clearer. It now says what the pop-up option is for: when your editor shows the question in its own window, your agent never sees the question or your answer, so it cannot hint at the answer. The step no longer mentions an "Off" choice that was not on the screen.

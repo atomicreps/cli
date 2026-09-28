@@ -46,9 +46,11 @@ function parseClientState(value: unknown): ClientState | undefined {
   const version = release && str(release.version);
   const notes = release && str(release.notes);
   const asksSure = bool(raw.asksSure);
+  const slotsSpent = raw.slotsSpent === 1 || raw.slotsSpent === 2 ? raw.slotsSpent : undefined;
   return {
     ...(grammarVersion === undefined ? {} : { grammarVersion }),
     ...(asksSure === undefined ? {} : { asksSure }),
+    ...(slotsSpent === undefined ? {} : { slotsSpent }),
     ...(Array.isArray(raw.muteKeys) ? { muteKeys: stringList(raw.muteKeys) } : {}),
     ...(release === undefined
       ? {}

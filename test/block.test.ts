@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { setTheme, themeFromEnv, tint } from "../src/ansi.js";
 import { paintBlock } from "../src/block.js";
-import { plainBlock, spans, tokenizeBlock } from "../src/format.js";
+import { plainBlock, shareUrlOf, spans, tokenizeBlock } from "../src/format.js";
 
 const ESC = String.fromCharCode(27);
 const INK = `${ESC}[38;5;231m`;
@@ -10,6 +10,8 @@ const SOFT = `${ESC}[38;5;250m`;
 const FAINT = `${ESC}[38;5;244m`;
 const CORAL = `${ESC}[38;5;209m`;
 const GOLD = `${ESC}[38;5;221m`;
+const GREEN = `${ESC}[38;5;114m`;
+const RED = `${ESC}[38;5;203m`;
 const BOLD = `${ESC}[1m`;
 const RESET = `${ESC}[0m`;
 
@@ -142,6 +144,19 @@ describe("paintBlock", () => {
     expect(lines.at(-1)).toBe(`${FAINT}──────────────────────────${RESET}`);
   });
 
+  it("paints a verdict's outcome green when right and red when not, and the rest in ink", () => {
+    setTheme("dark");
+    const right = paintBlock("✅ **Correct** · `useRef`", tint, { chrome: true });
+    expect(right).toEqual([
+      `✅ ${BOLD}${GREEN}Correct${RESET}${INK} · ${RESET}${GOLD}useRef${RESET}`,
+    ]);
+    const wrong = paintBlock("❌ **Not this time** · Input delay", tint, { chrome: true });
+    expect(wrong).toEqual([`❌ ${BOLD}${RED}Not this time${RESET}${INK} · Input delay${RESET}`]);
+    expect(plainBlock("❌ **Not this time** · Input delay")).toEqual([
+      "❌ Not this time · Input delay",
+    ]);
+  });
+
   it("indents a code line two spaces and never touches its own indentation", () => {
     const text = ["```ts", "    return x;", "```"].join("\n");
     const lines = paintBlock(text, tintForTest, { chrome: true });
@@ -236,5 +251,16 @@ describe("theme", () => {
       if (saved === undefined) delete process.env.COLORFGBG;
       else process.env.COLORFGBG = saved;
     }
+  });
+});
+
+describe("shareUrlOf", () => {
+  it("takes the https share link a missed verdict carries, and nothing else", () => {
+    expect(shareUrlOf({ shareUrl: "https://atomicreps.com/q/abc?ref=mcp" })).toBe(
+      "https://atomicreps.com/q/abc?ref=mcp",
+    );
+    expect(shareUrlOf({ shareUrl: null })).toBeNull();
+    expect(shareUrlOf({})).toBeNull();
+    expect(shareUrlOf({ shareUrl: "javascript:alert(1)" })).toBeNull();
   });
 });

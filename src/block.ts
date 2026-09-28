@@ -127,6 +127,14 @@ export function paintBlock(
       case "note":
         out.push(...renderSpans(token.text, painter, "soft", width));
         break;
+      case "verdict": {
+        const outcome = `${token.correct ? "✅" : "❌"} ${painter(token.outcome, "bold", token.correct ? "green" : "red")}`;
+        const restWidth =
+          width === undefined ? undefined : Math.max(1, width - visibleWidth(outcome));
+        const [first = "", ...rest] = renderSpans(token.text, painter, "ink", restWidth);
+        out.push(`${outcome}${first}`, ...rest);
+        break;
+      }
       case "option": {
         const letter = `${painter(`${token.letter}.`, "bold", "coral")} `;
         const bodyWidth = width === undefined ? undefined : Math.max(1, width - 3);

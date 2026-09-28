@@ -10,6 +10,7 @@ import { readConfig, updateConfig } from "./config.js";
 import { claudeSettingsPath } from "./connect.js";
 import {
   DEGRADED_BACKOFF_MS,
+  HELD_TTL_MS,
   HOOK_DEADLINE_MS,
   INFER_BUDGET_MS,
   MAX_SHORT_PROMPT_CHARS,
@@ -17,6 +18,7 @@ import {
 } from "./constants.js";
 import { isRepBlock } from "./format.js";
 import { inferSession } from "./infer.js";
+import { backgroundTaskIds, stillWorking, unattended } from "./session.js";
 import {
   cachedGrammar,
   cachedGrammarVersion,
@@ -35,6 +37,7 @@ import {
   asPick,
   type ApiResult,
   type ClientState,
+  type HeldBlock,
   type HookInput,
   type HookOutput,
   type OfferEntry,
@@ -49,18 +52,26 @@ const LETTER = /^\s*([A-Da-d])([!?])?[.):]?\s*$/;
 const DIGIT = /^\s*([1-3])[.):]?\s*$/;
 const OUR_COMMAND = /^\s*\/(?:mcp__atomicreps[\w-]*__rep|atomicreps:rep)(?:\s|$)/;
 
-export function isInsightSlot(slot: number): boolean {
-  return slot % 2 === 0;
+function answerLine(withMessage: boolean): string {
+  return withMessage ? "the first line of the user's message" : "the user's message";
 }
 
-export const RESOLVED_CONTEXT =
-  "Atomic Reps: the rep the user just answered was already answered elsewhere (the web link or another editor), so there is nothing to grade and no rep is open. Say that in one line. Do not call any Atomic Reps tool and write no rep block.";
+function carryOn(withMessage: boolean): string {
+  return withMessage
+    ? "Treat the rest of the message as the whole request."
+    : 'If you were in the middle of work, carry on with it; otherwise reply with one short line, such as "Answer recorded."';
+}
 
-export const VERDICT_ETIQUETTE =
-  "Atomic Reps: the user's message was their answer to the rep on screen. Show them this verdict block as written.";
+export function recordedContext(withMessage: boolean): string {
+  return `Atomic Reps: ${answerLine(withMessage)} was their answer to the Atomic Reps question on screen. The hook has recorded it, and the verdict prints in their terminal when this turn ends. Do not grade, repeat or discuss it, and call no Atomic Reps tool. ${carryOn(withMessage)}`;
+}
 
-export const ASKED_ETIQUETTE =
-  "Atomic Reps: the user's message asked for another rep by number. Show them this rep block as written. If their next message is a single letter, the hook grades it.";
+export function resolvedContext(withMessage: boolean): string {
+  return `Atomic Reps: ${answerLine(withMessage)} answered a question that was already answered elsewhere (the web link or another editor), so there is nothing to grade and no rep is open. Say that in one short line, call no Atomic Reps tool and write no rep block. ${carryOn(withMessage)}`;
+}
+
+export const ASKED_CONTEXT =
+  'Atomic Reps: the user\'s message asked for another Atomic Reps question by number. The hook has fetched it, and it prints in their terminal when this turn ends. Do not show or discuss it, and call no Atomic Reps tool. If you were in the middle of work, carry on with it; otherwise reply with one short line, such as "It prints below."';
 
 function context(text: string): HookOutput {
   return {
@@ -81,11 +92,15 @@ function parseInput(raw: string): HookInput {
   const prompt = str(input.prompt);
   const cwd = str(input.cwd);
   const last = str(input.last_assistant_message);
+  const tasks = backgroundTaskIds(input.background_tasks);
+  const agent = str(input.agent_id);
   return {
     ...(event === undefined ? {} : { hook_event_name: event }),
     ...(prompt === undefined ? {} : { prompt }),
     ...(cwd === undefined ? {} : { cwd }),
     ...(last === undefined ? {} : { last_assistant_message: last }),
+    ...(tasks === undefined ? {} : { background_tasks: tasks }),
+    ...(agent === undefined ? {} : { agent_id: agent }),
   };
 }
 
@@ -100,6 +115,18 @@ export function letterOf(prompt: string): { pick: Pick; sure?: boolean } | null 
   if (!pick) return null;
   const suffix = match?.[2];
   return suffix === undefined ? { pick } : { pick, sure: suffix === "!" };
+}
+
+export function answerOf(
+  prompt: string,
+): { pick: Pick; sure?: boolean; withMessage: boolean } | null {
+  const whole = letterOf(prompt);
+  if (whole) return { ...whole, withMessage: false };
+  const [first = "", ...rest] = prompt.trim().split("\n");
+  const next = rest.find((line) => line.trim() !== "");
+  if (next === undefined || letterOf(next)) return null;
+  const letter = letterOf(first);
+  return letter ? { ...letter, withMessage: true } : null;
 }
 
 export function digitOf(prompt: string): number | null {
@@ -141,22 +168,21 @@ export function hostSystemMessage(block: string, upgrade: string): string {
 }
 
 async function gradeLetter(
-  pick: Pick,
-  id: string,
+  action: Extract<HookAction, { kind: "grade" }>,
   now: clock.EpochMs,
-  sure?: boolean,
 ): Promise<HookOutput | null> {
-  const result = await api.answer(id, pick, sure);
+  const result = await api.answer(action.id, action.pick, action.sure);
   if (!result.ok) return null;
   const data = result.value.data ?? {};
   observeClient(result.value.client, now);
-  observeVerdict(id, data, result.value.text, now);
+  observeVerdict(action.id, data, result.value.text, now);
   if (data.status === "not_served") {
-    noteResolvedElsewhere(id, now);
-    return context(RESOLVED_CONTEXT);
+    noteResolvedElsewhere(action.id, now);
+    return context(resolvedContext(action.withMessage));
   }
   if (data.status === "rate_limited") return null;
-  return context(`${VERDICT_ETIQUETTE}\n\n${result.value.text}`);
+  updateConfig({ held: { text: result.value.text, at: now } });
+  return context(recordedContext(action.withMessage));
 }
 
 function servedBlock(result: ApiResult<ToolReply>, now: clock.EpochMs): string | null {
@@ -169,21 +195,27 @@ function servedBlock(result: ApiResult<ToolReply>, now: clock.EpochMs): string |
   return result.value.text;
 }
 
-async function handOver(
-  result: ApiResult<ToolReply>,
-  etiquette: string,
-  now: clock.EpochMs,
-): Promise<HookOutput | null> {
-  const block = servedBlock(result, now);
-  if (block === null) return null;
-  armFor(result, true);
-  return context(`${etiquette}\n\n${block}`);
+function questionId(result: ApiResult<ToolReply>): string | undefined {
+  const data = result.ok ? (result.value.data ?? {}) : {};
+  return data.kind === "question" && typeof data.id === "string" ? data.id : undefined;
 }
 
-function armFor(result: ApiResult<ToolReply>, viaModel: boolean): void {
-  const data = result.ok ? (result.value.data ?? {}) : {};
-  if (data.kind !== "question" || typeof data.id !== "string") return;
-  updateConfig({ armedRep: viaModel ? { id: data.id, viaModel: true } : { id: data.id } });
+function holdAsked(result: ApiResult<ToolReply>, now: clock.EpochMs): HookOutput | null {
+  const block = servedBlock(result, now);
+  if (block === null) return null;
+  const arm = questionId(result);
+  updateConfig({
+    held: arm === undefined ? { text: block, at: now } : { text: block, at: now, arm },
+  });
+  return context(ASKED_CONTEXT);
+}
+
+function showHeld(held: HeldBlock): HookOutput {
+  updateConfig({
+    held: undefined,
+    ...(held.arm === undefined ? {} : { armedRep: { id: held.arm } }),
+  });
+  return { systemMessage: hostSystemMessage(held.text, "") };
 }
 
 function upgradeLine(client: ClientState | undefined): string {
@@ -205,7 +237,8 @@ function printServed(
   const block = servedBlock(result, now);
   if (block === null) return null;
   if (mark !== null) updateConfig({ lastPushTouch: mark });
-  armFor(result, false);
+  const armed = questionId(result);
+  if (armed !== undefined) updateConfig({ armedRep: { id: armed } });
   return {
     systemMessage: hostSystemMessage(
       block,
@@ -241,7 +274,7 @@ async function remindRep(
   const data = result.value.data ?? {};
   if (data.kind === "open") {
     observeClient(result.value.client, now);
-    noteReprinted(rep.id, now, isInsightSlot(slot) ? 2 : 1);
+    noteReprinted(rep.id, now, result.value.client?.slotsSpent ?? 1);
     updateConfig({ armedRep: { id: rep.id } });
     return { systemMessage: hostSystemMessage(rep.text, "") };
   }
@@ -257,6 +290,9 @@ async function remindRep(
 
 export type HookState = {
   hasToken: boolean;
+  unattended: boolean;
+  busy: boolean;
+  held: HeldBlock | undefined;
   nextEligibleAt: clock.EpochMs | undefined;
   pending: StoredRep | undefined;
   armed: string | undefined;
@@ -265,17 +301,20 @@ export type HookState = {
 
 export type HookAction =
   | { kind: "ignore" }
-  | { kind: "grade"; id: string; pick: Pick; sure?: boolean }
+  | { kind: "grade"; id: string; pick: Pick; sure?: boolean; withMessage: boolean }
   | { kind: "take"; handle: string }
   | { kind: "remind"; rep: StoredRep; cwd: string }
+  | { kind: "show"; held: HeldBlock }
   | { kind: "push"; cwd: string };
 
 function decideStop(input: HookInput, state: HookState, now: clock.EpochMs): HookAction {
   if (!state.hasToken) return { kind: "ignore" };
+  if (state.held) return { kind: "show", held: state.held };
   if (endsOnQuestion(input.last_assistant_message)) return { kind: "ignore" };
   if (state.nextEligibleAt !== undefined && clock.locallyQuiet(state.nextEligibleAt, now)) {
     return { kind: "ignore" };
   }
+  if (state.busy) return { kind: "ignore" };
   const cwd = input.cwd ?? process.cwd();
   const pending = state.pending;
   if (pending && (pending.shown ?? 0) < REMIND_LIMIT) return { kind: "remind", rep: pending, cwd };
@@ -283,6 +322,7 @@ function decideStop(input: HookInput, state: HookState, now: clock.EpochMs): Hoo
 }
 
 export function decide(input: HookInput, state: HookState, now: clock.EpochMs): HookAction {
+  if (state.unattended) return { kind: "ignore" };
   const event = input.hook_event_name ?? "UserPromptSubmit";
   if (event === "Stop") return decideStop(input, state, now);
   if (event !== "UserPromptSubmit") return { kind: "ignore" };
@@ -290,21 +330,35 @@ export function decide(input: HookInput, state: HookState, now: clock.EpochMs): 
   if (OUR_COMMAND.test(prompt)) return { kind: "ignore" };
   if (!state.hasToken) return { kind: "ignore" };
 
-  const letter = letterOf(prompt);
-  if (letter && state.pending && state.pending.id === state.armed) {
-    return { kind: "grade", id: state.pending.id, ...letter };
+  const answer = answerOf(prompt);
+  if (answer && state.pending && state.pending.id === state.armed) {
+    return { kind: "grade", id: state.pending.id, ...answer };
   }
 
   const digit = digitOf(prompt);
-  const entry = digit === null || state.pending ? undefined : state.offer[digit - 1];
+  const entry = digit === null || state.pending || state.held ? undefined : state.offer[digit - 1];
   if (entry) return { kind: "take", handle: entry.handle };
   return { kind: "ignore" };
 }
 
-export function readState(now: clock.EpochMs): HookState {
+function backgroundBusy(tasks: readonly string[] | undefined, now: clock.EpochMs): boolean {
+  if (tasks === undefined) return false;
+  const held = readConfig().backgroundSeen ?? {};
+  const { busy, seen } = stillWorking(tasks, held, now);
+  if (JSON.stringify(seen) !== JSON.stringify(held)) updateConfig({ backgroundSeen: seen });
+  return busy;
+}
+
+export function readState(now: clock.EpochMs, input: HookInput = {}): HookState {
+  const isUnattended = unattended(input.agent_id, process.env);
+  const busy = !isUnattended && backgroundBusy(input.background_tasks, now);
   const config = readConfig();
+  const held = config.held;
   return {
     hasToken: Boolean(config.token),
+    unattended: isUnattended,
+    busy,
+    held: held !== undefined && now - held.at <= HELD_TTL_MS ? held : undefined,
     nextEligibleAt: config.nextEligibleAt,
     pending: pendingRep(now),
     armed: config.armedRep?.id,
@@ -317,15 +371,13 @@ export async function perform(action: HookAction, now: clock.EpochMs): Promise<H
     case "ignore":
       return null;
     case "grade":
-      return await gradeLetter(action.pick, action.id, now, action.sure);
+      return await gradeLetter(action, now);
+    case "show":
+      return showHeld(action.held);
     case "remind":
       return await remindRep(action.rep, action.cwd, now);
     case "take":
-      return await handOver(
-        await api.rep({ ask: action.handle }, HOOK_DEADLINE_MS),
-        ASKED_ETIQUETTE,
-        now,
-      );
+      return holdAsked(await api.rep({ ask: action.handle }, HOOK_DEADLINE_MS), now);
     case "push":
       return await fetchRep(action.cwd, now);
   }
@@ -333,20 +385,19 @@ export async function perform(action: HookAction, now: clock.EpochMs): Promise<H
 
 export async function runHook(raw: string, now = clock.now()): Promise<HookOutput | null> {
   const input = parseInput(raw);
-  const state = readState(now);
-  disarm(input);
+  const state = readState(now, input);
+  if (state.unattended) return null;
+  disarm();
   return await perform(decide(input, state, now), now);
 }
 
-function disarm(input: HookInput): void {
-  const armed = readConfig().armedRep;
-  if (armed === undefined) return;
-  const ending = input.hook_event_name === "Stop" && armed.viaModel === true;
-  updateConfig({ armedRep: ending ? { id: armed.id } : undefined });
+function disarm(): void {
+  if (readConfig().armedRep !== undefined) updateConfig({ armedRep: undefined });
 }
 
-export async function refreshGrammar(now = clock.now()): Promise<void> {
+export async function refreshGrammar(raw: string, now = clock.now()): Promise<void> {
   if (!readConfig().token) return;
+  if (unattended(parseInput(raw).agent_id, process.env)) return;
   const held = cachedGrammar();
   const wanted = cachedGrammarVersion(now);
   if (held !== null && (wanted === undefined || held.version === wanted)) return;

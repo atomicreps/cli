@@ -50,14 +50,16 @@ import {
   TUI_INFER_BUDGET_MS,
 } from "./constants.js";
 import { readJsonFile } from "./files.js";
+import { SHARE_LABEL, shareUrlOf } from "./format.js";
 import { inferHints } from "./infer.js";
 import { CADENCES, draftOf, gateScreen, install, levelsScreen, scopeScreen } from "./install.js";
-import { loopRows } from "./loop.js";
+import { loopRows, type LoopOptions } from "./loop.js";
 import { pickMany, pickOne } from "./pick.js";
 import {
   beside,
   copyToClipboard,
   hiddenCursor,
+  idleLoop,
   isBack,
   isEnter,
   isInteractive,
@@ -339,6 +341,7 @@ async function repScreen(ask?: string): Promise<void> {
     ]),
     ...lines.slice(3),
     "",
+    ...shareLines(verdict),
     ...(offer.length > 0
       ? [paint("Also touched:", "faint"), keyHint(offer.map((o, i) => [String(i + 1), o.name])), ""]
       : []),
@@ -346,6 +349,11 @@ async function repScreen(ask?: string): Promise<void> {
   ]);
   const next = offer[Number(await readKey()) - 1];
   if (next) await repScreen(next.handle);
+}
+
+function shareLines(verdict: Record<string, unknown>): string[] {
+  const url = shareUrlOf(verdict);
+  return url === null ? [] : [`${paint(SHARE_LABEL, "faint")} ${url}`, ""];
 }
 
 async function sessionScreen(): Promise<void> {
@@ -859,12 +867,9 @@ export async function home(): Promise<void> {
       if (key === "r") continue;
       return;
     }
-    out([
-      ...beside(
-        loopRows(summary.answeredToday > 0 ? "impressed" : "idle", "home"),
-        summaryLines(summary),
-        ART_GUTTER_WIDE,
-      ),
+    const pose = summary.answeredToday > 0 ? "impressed" : "idle";
+    const screen = (options: LoopOptions = {}): string[] => [
+      ...beside(loopRows(pose, "home", options), summaryLines(summary), ART_GUTTER_WIDE),
       "",
       rule(),
       keyHint([
@@ -881,8 +886,13 @@ export async function home(): Promise<void> {
               "faint",
             ),
           ]),
-    ]);
-    let key = await readKey();
+    ];
+    out(screen());
+    let key: string;
+    {
+      using _idle = pose === "idle" ? idleLoop(screen) : null;
+      key = await readKey();
+    }
     if (key === "?") {
       const picked = await moreScreen(summary);
       if (picked === null) continue;

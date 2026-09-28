@@ -1,16 +1,33 @@
 import { describe, expect, it } from "vitest";
 
-import { stripAnsi } from "../src/ansi.js";
-import { ART_WIDTH } from "../src/constants.js";
-import { LOOP_ART, PALETTE, SIZES, type LoopVariant } from "../src/loop-art.js";
-import { eyeWidth, loopArt, loopPixels, PIXEL_FACES } from "../src/loop.js";
+import { stripAnsi, to256 } from "../src/ansi.js";
+import { ART_WIDTH, ART_WIDTH_WIDE } from "../src/constants.js";
+import {
+  IDLE_FRAMES,
+  LOOP_ART,
+  PALETTE,
+  SIZES,
+  type LoopFrame,
+  type LoopVariant,
+} from "../src/loop-art.js";
+import { idleFrameAt, loopArt, loopGrid, loopPixels } from "../src/loop.js";
 import type { LoopPose } from "../src/types.js";
 
 const POSES: LoopPose[] = ["idle", "thinking", "impressed", "facepalm", "celebrating", "sleeping"];
 const VARIANTS: LoopVariant[] = ["small", "home"];
+const FRAMES: LoopFrame[] = ["blink", "bob"];
 
 function width(row: string): number {
   return [...stripAnsi(row)].length;
+}
+
+function everyGrid(): Array<[string, LoopVariant, readonly string[]]> {
+  const all: Array<[string, LoopVariant, readonly string[]]> = [];
+  for (const variant of VARIANTS) {
+    for (const pose of POSES) all.push([pose, variant, LOOP_ART[pose][variant]]);
+    for (const frame of FRAMES) all.push([`idle ${frame}`, variant, IDLE_FRAMES[variant][frame]]);
+  }
+  return all;
 }
 
 describe("loopArt", () => {
@@ -23,21 +40,61 @@ describe("loopArt", () => {
   });
 });
 
-describe("loopPixels", () => {
-  it("draws every pose and size at the width its grid declares", () => {
-    for (const pose of POSES) {
-      for (const variant of VARIANTS) {
-        for (const [i, row] of loopPixels(pose, variant, { deep: true }).entries()) {
-          expect(width(row), `${pose}/${variant} row ${i}`).toBe(SIZES[variant].w);
+describe("the hand-drawn grids", () => {
+  it("are exactly the size their variant declares, every row", () => {
+    for (const [name, variant, grid] of everyGrid()) {
+      expect(grid.length, `${name}/${variant} rows`).toBe(SIZES[variant].h);
+      for (const [i, row] of grid.entries()) {
+        expect(row.length, `${name}/${variant} row ${i}`).toBe(SIZES[variant].w);
+      }
+    }
+  });
+
+  it("use only letters the palette has a colour for", () => {
+    for (const [name, variant, grid] of everyGrid()) {
+      for (const [i, row] of grid.entries()) {
+        for (const letter of row) {
+          if (letter === ".") continue;
+          expect(PALETTE[letter]?.deep, `${name}/${variant} row ${i} letter ${letter}`).toMatch(
+            /^#[0-9a-f]{6}$/,
+          );
         }
       }
     }
   });
 
-  it("prints two pixels to a cell, so a grid is half as many rows as it is tall", () => {
+  it("give every letter a 256-colour stand-in the table holds exactly", () => {
+    for (const [letter, { cube }] of Object.entries(PALETTE)) {
+      const [r, g, b] = [1, 3, 5].map((at) => Number.parseInt(cube.slice(at, at + 2), 16));
+      const index = to256(r!, g!, b!);
+      const levels = [0, 95, 135, 175, 215, 255];
+      const exact =
+        index >= 232
+          ? [8 + (index - 232) * 10, 8 + (index - 232) * 10, 8 + (index - 232) * 10]
+          : [
+              levels[Math.floor((index - 16) / 36)],
+              levels[Math.floor((index - 16) / 6) % 6],
+              levels[(index - 16) % 6],
+            ];
+      expect([r, g, b], `${letter} ${cube}`).toEqual(exact);
+    }
+  });
+
+  it("fit the column the home screen reserves", () => {
+    expect(SIZES.home.w).toBe(ART_WIDTH_WIDE);
+    expect(SIZES.small.w).toBeLessThanOrEqual(ART_WIDTH);
+  });
+});
+
+describe("loopPixels", () => {
+  it("prints two pixels to a cell at the grid's width", () => {
     for (const pose of POSES) {
       for (const variant of VARIANTS) {
-        expect(loopPixels(pose, variant).length).toBe(Math.ceil(SIZES[variant].h / 2));
+        const rows = loopPixels(pose, variant, { deep: true });
+        expect(rows.length, `${pose}/${variant}`).toBe(SIZES[variant].h / 2);
+        for (const [i, row] of rows.entries()) {
+          expect(width(row), `${pose}/${variant} row ${i}`).toBe(SIZES[variant].w);
+        }
       }
     }
   });
@@ -50,88 +107,31 @@ describe("loopPixels", () => {
     }
   });
 
-  it("gives every pose a face, because eyes do not survive the reduce", () => {
-    for (const pose of POSES) {
-      for (const variant of VARIANTS) {
-        const anchors = LOOP_ART[pose][variant].anchors;
-        expect(Object.keys(anchors).toSorted(), `${pose}/${variant}`).toEqual([
-          "eyeL",
-          "eyeR",
-          "mouth",
-        ]);
-        for (const [name, [cx, cy]] of Object.entries(anchors)) {
-          expect(Math.round(cx), `${pose}/${variant} ${name} x`).toBeGreaterThanOrEqual(0);
-          expect(Math.round(cx), `${pose}/${variant} ${name} x`).toBeLessThan(SIZES[variant].w);
-          expect(Math.round(cy / 2), `${pose}/${variant} ${name} y`).toBeLessThan(
-            Math.ceil(SIZES[variant].h / 2),
-          );
-        }
-      }
-    }
-  });
-
-  it("keeps every painted face inside the grid it is drawn on", () => {
-    for (const variant of VARIANTS) {
-      for (const pose of POSES) {
-        const face = PIXEL_FACES[variant][pose];
-        const grid = LOOP_ART[pose][variant];
-        const where = `${pose}/${variant}`;
-
-        const columns = face.mouth[0]?.length ?? 0;
-        for (const line of face.mouth) expect(line.length, where).toBe(columns);
-
-        const left = Math.round(grid.anchors.eyeL![0] * 2) >> 1;
-        const right = Math.round(grid.anchors.eyeR![0] * 2) >> 1;
-        const row = Math.round(grid.anchors.eyeL![1]) >> 1;
-        const wide = eyeWidth(face);
-        for (const side of [face.eyes.left, face.eyes.right]) {
-          for (const cells of side) expect(cells.length, `${where} eye width`).toBe(wide);
-        }
-        expect(left - wide, `${where} cheek off the left`).toBeGreaterThanOrEqual(0);
-        expect(right + wide, `${where} cheek off the right`).toBeLessThan(grid.w);
-        expect(left * 2 - 2, `${where} mouth off the left`).toBeGreaterThanOrEqual(0);
-        expect(left * 2 - 2 + columns, `${where} mouth off the right`).toBeLessThanOrEqual(
-          grid.w * 2,
-        );
-        const under = (row + face.eyes.left.length) * 2;
-        expect(under + face.mouth.length, `${where} mouth off the bottom`).toBeLessThanOrEqual(
-          grid.h,
-        );
-      }
-    }
-  });
-
-  it("blinks without changing a single column", () => {
-    const open = loopPixels("idle", "home").map(width);
-    const shut = loopPixels("idle", "home", { blink: true }).map(width);
-    expect(shut).toEqual(open);
+  it("swaps in an idle frame for idle only", () => {
+    expect(loopGrid("idle", "home", "blink")).toBe(IDLE_FRAMES.home.blink);
+    expect(loopGrid("sleeping", "home", "blink")).toBe(LOOP_ART.sleeping.home);
   });
 });
 
-describe("the baked art", () => {
-  it("carries one byte per pixel for every pose and size", () => {
-    for (const pose of POSES) {
-      for (const variant of VARIANTS) {
-        const grid = LOOP_ART[pose][variant];
-        const bytes = Buffer.from(grid.data, "base64");
-        expect(bytes.length, `${pose}/${variant}`).toBe(grid.w * grid.h);
-      }
-    }
+describe("idleFrameAt", () => {
+  it("blinks briefly once a cycle and bobs in between", () => {
+    const frames = Array.from({ length: 34 }, (_, tick) => idleFrameAt(tick));
+    expect(frames.filter((f) => f === "blink")).toHaveLength(2);
+    expect(frames).toContain("bob");
+    expect(frames).toContain(undefined);
+  });
+});
+
+describe("to256", () => {
+  it("maps a colour the 256-colour table holds to that entry", () => {
+    expect(to256(95, 135, 175)).toBe(67);
+    expect(to256(0, 0, 0)).toBe(16);
+    expect(to256(128, 128, 128)).toBe(244);
   });
 
-  it("holds a palette of parsable six-digit colours", () => {
-    expect(PALETTE.length).toBeGreaterThan(0);
-    expect(PALETTE.length).toBeLessThan(256);
-    for (const hex of PALETTE) expect(hex).toMatch(/^[0-9a-f]{6}$/);
-  });
-
-  it("never indexes past the palette", () => {
-    for (const pose of POSES) {
-      for (const variant of VARIANTS) {
-        for (const byte of Buffer.from(LOOP_ART[pose][variant].data, "base64")) {
-          expect(byte, `${pose}/${variant}`).toBeLessThanOrEqual(PALETTE.length);
-        }
-      }
-    }
+  it("keeps a dark navy blue rather than lifting it to teal", () => {
+    const [r, g, b] = [0x0d, 0x22, 0x3d];
+    const index = to256(r, g, b) - 16;
+    expect(index % 6, "blue level").toBeGreaterThan(Math.floor(index / 6) % 6);
   });
 });

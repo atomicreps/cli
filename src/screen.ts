@@ -1,10 +1,10 @@
 import { spawnSync } from "node:child_process";
 
-import { paint, padTo, sanitize, stripAnsi } from "./ansi.js";
+import { COLOUR, paint, padTo, sanitize, stripAnsi } from "./ansi.js";
 import { apiOrigin, isAlpha, siteOrigin } from "./config.js";
-import { ART_GUTTER, CLEAR, HIDE_CURSOR, SHOW_CURSOR } from "./constants.js";
+import { ART_GUTTER, CLEAR, ESC, HIDE_CURSOR, SHOW_CURSOR } from "./constants.js";
 import { decodeKey } from "./keys.js";
-import { loopRows, type LoopOptions } from "./loop.js";
+import { idleFrameAt, loopRows, type LoopFrame, type LoopOptions } from "./loop.js";
 import type { LoopPose } from "./types.js";
 
 export const WIDTH = Math.min(process.stdout.columns || 80, 88);
@@ -16,8 +16,35 @@ export function isInteractive(): boolean {
 }
 
 export function out(lines: string[]): void {
-  const all = [...channelBanner(), ...lines];
-  process.stdout.write(`${CLEAR}${all.map((l) => `  ${sanitize(l)}`).join("\n")}\n`);
+  process.stdout.write(`${CLEAR}${compose(lines).join("\n")}\n`);
+}
+
+function compose(lines: string[]): string[] {
+  return [...channelBanner(), ...lines].map((l) => `  ${sanitize(l)}`);
+}
+
+function repaint(lines: string[]): void {
+  process.stdout.write(
+    `${ESC}[H${compose(lines)
+      .map((l) => `${l}${ESC}[K`)
+      .join("\n")}\n${ESC}[J`,
+  );
+}
+
+const IDLE_TICK_MS = 100;
+
+export function idleLoop(draw: (options: LoopOptions) => string[]): Disposable {
+  if (!COLOUR) return { [Symbol.dispose]: () => {} };
+  let tick = 0;
+  let shown: LoopFrame | undefined;
+  const timer = setInterval(() => {
+    tick += 1;
+    const frame = idleFrameAt(tick);
+    if (frame === shown) return;
+    shown = frame;
+    repaint(draw(frame ? { frame } : {}));
+  }, IDLE_TICK_MS);
+  return { [Symbol.dispose]: () => clearInterval(timer) };
 }
 
 export function plain(lines: string[]): void {

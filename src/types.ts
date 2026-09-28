@@ -34,6 +34,7 @@ export type ClientState = {
   readonly muteKeys?: readonly string[];
   readonly release?: { readonly version?: string; readonly notes?: string };
   readonly asksSure?: boolean;
+  readonly slotsSpent?: 1 | 2;
 };
 
 export type ToolReply = {
@@ -135,6 +136,8 @@ export type DoorCall = { ok: true; body: JsonRpcMessage } | { ok: false; reason:
 
 export type Channel = "default" | "alpha";
 
+export type HeldBlock = { readonly text: string; readonly at: EpochMs; readonly arm?: string };
+
 export type Config = {
   token?: string;
   tokenPrefix?: string;
@@ -149,7 +152,9 @@ export type Config = {
   elicitationCapable?: boolean;
   setupAt?: EpochMs;
   lastPushTouch?: string;
-  armedRep?: { id: string; viaModel?: true } | undefined;
+  armedRep?: { id: string } | undefined;
+  held?: HeldBlock | undefined;
+  backgroundSeen?: Record<string, EpochMs> | undefined;
   bridgeVersion?: string | undefined;
   budget?: Record<string, Bucket>;
 };
@@ -213,6 +218,8 @@ export type HookInput = {
   readonly prompt?: string;
   readonly cwd?: string;
   readonly last_assistant_message?: string;
+  readonly background_tasks?: readonly string[];
+  readonly agent_id?: string;
 };
 
 export type HookOutput =

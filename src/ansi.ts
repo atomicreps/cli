@@ -69,14 +69,29 @@ export function deepColour(env = process.env): boolean {
   return COLOUR && (env.COLORTERM === "truecolor" || env.COLORTERM === "24bit");
 }
 
+const CUBE_LEVELS = [0, 95, 135, 175, 215, 255] as const;
+
 export function to256(r: number, g: number, b: number): number {
-  if (Math.abs(r - g) < 8 && Math.abs(g - b) < 8) {
-    if (r < 8) return 16;
-    if (r > 248) return 231;
-    return 232 + Math.round(((r - 8) / 247) * 24);
+  const [red, green, blue] = [nearestLevel(r), nearestLevel(g), nearestLevel(b)];
+  const cubeDistance = (r - red.level) ** 2 + (g - green.level) ** 2 + (b - blue.level) ** 2;
+  const grey = Math.min(23, Math.max(0, Math.round(((r + g + b) / 3 - 8) / 10)));
+  const level = 8 + grey * 10;
+  const greyDistance = (r - level) ** 2 + (g - level) ** 2 + (b - level) ** 2;
+  return greyDistance < cubeDistance
+    ? 232 + grey
+    : 16 + 36 * red.index + 6 * green.index + blue.index;
+}
+
+function nearestLevel(v: number): { index: number; level: number } {
+  let index = 0;
+  let level = 0;
+  for (const [i, candidate] of CUBE_LEVELS.entries()) {
+    if (Math.abs(v - candidate) < Math.abs(v - level)) {
+      index = i;
+      level = candidate;
+    }
   }
-  const step = (v: number) => Math.round((v / 255) * 5);
-  return 16 + 36 * step(r) + 6 * step(g) + step(b);
+  return { index, level };
 }
 
 export type Rgb = readonly [number, number, number];

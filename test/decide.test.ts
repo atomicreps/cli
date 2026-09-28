@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { REMIND_LIMIT } from "../src/constants.js";
 import { decide, type HookAction, type HookState } from "../src/hook.js";
-import type { HookInput, OfferEntry, StoredRep } from "../src/types.js";
+import type { HeldBlock, HookInput, OfferEntry, StoredRep } from "../src/types.js";
 
 const NOW = 1_700_000_000_000;
 
@@ -22,6 +22,9 @@ function reprinted(shown: number): StoredRep {
 function given(patch: Partial<HookState> = {}): HookState {
   return {
     hasToken: true,
+    unattended: false,
+    busy: false,
+    held: undefined,
     nextEligibleAt: undefined,
     pending: undefined,
     armed: undefined,
@@ -29,6 +32,8 @@ function given(patch: Partial<HookState> = {}): HookState {
     ...patch,
   };
 }
+
+const VERDICT: HeldBlock = { text: "a verdict", at: NOW - 5_000 };
 
 function onScreen(patch: Partial<HookState> = {}): HookState {
   return given({ pending: served(), armed: "q1", ...patch });
@@ -92,31 +97,61 @@ const CASES: ReadonlyArray<
     "a letter right after the rep was printed grades that rep",
     typed("b)"),
     onScreen(),
-    { kind: "grade", id: "q1", pick: "B" },
+    { kind: "grade", id: "q1", pick: "B", withMessage: false },
   ],
   [
     "a letter with a full stop is still the letter",
     typed("a."),
     onScreen(),
-    { kind: "grade", id: "q1", pick: "A" },
+    { kind: "grade", id: "q1", pick: "A", withMessage: false },
   ],
   [
     "a letter with ! is that letter, and the user saying they were sure",
     typed("A!"),
     onScreen(),
-    { kind: "grade", id: "q1", pick: "A", sure: true },
+    { kind: "grade", id: "q1", pick: "A", sure: true, withMessage: false },
   ],
   [
     "a letter with ? is that letter, and the user saying they were not",
     typed("b?"),
     onScreen(),
-    { kind: "grade", id: "q1", pick: "B", sure: false },
+    { kind: "grade", id: "q1", pick: "B", sure: false, withMessage: false },
   ],
   [
     "no suffix says nothing about how sure they were, which is not the same as unsure",
     typed("A"),
     onScreen(),
-    { kind: "grade", id: "q1", pick: "A" },
+    { kind: "grade", id: "q1", pick: "A", withMessage: false },
+  ],
+  [
+    "a letter alone on the first line answers the rep, and the rest is a message for the agent",
+    typed("A!\nAlso, rename the route to /reports."),
+    onScreen(),
+    { kind: "grade", id: "q1", pick: "A", sure: true, withMessage: true },
+  ],
+  [
+    "a list of letters one per line is still prose, first line and all",
+    typed("A\nB\nC"),
+    onScreen(),
+    { kind: "ignore" },
+  ],
+  [
+    "a first-line letter with no rep on screen is the user talking to the agent",
+    typed("A\nthe first option, please"),
+    given({ pending: served() }),
+    { kind: "ignore" },
+  ],
+  [
+    "a digit while a verdict waits to be printed takes nothing: the offer is not on screen yet",
+    typed("1"),
+    given({ offer: OFFER, held: VERDICT }),
+    { kind: "ignore" },
+  ],
+  [
+    "a session nobody reads grades nothing, however bare the letter",
+    typed("A"),
+    onScreen({ unattended: true }),
+    { kind: "ignore" },
   ],
   [
     "a short sentence that starts with a letter is a sentence",
@@ -237,6 +272,36 @@ const CASES: ReadonlyArray<
     stopped("Why? Because the index was missing. Fixed and tested."),
     given(),
     { kind: "push", cwd: "/repo" },
+  ],
+  [
+    "a subagent or a headless run is never pushed a rep",
+    stopped(),
+    given({ unattended: true }),
+    { kind: "ignore" },
+  ],
+  [
+    "background work still running holds the push back: the turn is the inside of the work",
+    stopped(),
+    given({ busy: true }),
+    { kind: "ignore" },
+  ],
+  [
+    "background work still running holds a reminder back too",
+    stopped(),
+    given({ busy: true, pending: served() }),
+    { kind: "ignore" },
+  ],
+  [
+    "a held verdict prints at the next Stop, before the clock, the question and the background work",
+    stopped("Shall I apply the same to the other routes?"),
+    given({ held: VERDICT, busy: true, nextEligibleAt: NOW + 60_000, pending: served() }),
+    { kind: "show", held: VERDICT },
+  ],
+  [
+    "a held verdict is not printed into a session nobody reads",
+    stopped(),
+    given({ held: VERDICT, unattended: true }),
+    { kind: "ignore" },
   ],
   [
     "a finished turn with nothing in the way is a push, in the editor's directory",
