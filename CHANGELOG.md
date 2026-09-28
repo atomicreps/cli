@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.0.19
+
+- The smaller Loop, the one beside the text on every screen except the home screen, is redrawn to match the home screen Loop. His eyes were two pixels wide with a large white highlight, so he seemed to glance sideways and look cross. He now has round dark eyes, pink cheeks and a smile, and his hand has fingers when he covers his face.
+
 ## 0.0.18
 
 - In Claude Code, a question no longer appears while a subagent, workflow or background command that Claude started is still running. When Claude's turn ends with background work still running, the task is not finished: the background work reports back and Claude starts again, often before you have read the question. The question waits for the first turn end after the last background task finishes. A task still running two hours after the plugin first saw it, such as a dev server, no longer holds questions back.
