@@ -39,7 +39,7 @@ export function plainBlock(text: string): string[] {
 export const FALLBACK_INSTRUCTIONS = [
   "Atomic Reps serves one short retrieval question about what the user just built, for the user, never for you.",
   "- If `rep` is not callable, this client is holding tool schemas back and listed it by name only: load this server's tools through your tool-discovery step before the first call.",
-  "- After you finish a task, call `rep` once with `touched` (short phrases for what changed). An empty result means nothing to ask: say nothing.",
+  "- As the last step of any turn in which you changed files, call `rep` once with `touched` (short phrases for what changed); uncommitted or untested work counts. An empty result means nothing to ask: say nothing.",
   "- Reproduce a rep, a verdict or a `me` block verbatim after your own answer; never solve, hint or comment; never write one yourself.",
   "- A single letter A-D is the user's answer: call `answer` with `pick`. A digit 1-3 after a verdict: call `rep` with `ask` set to that offer entry's handle.",
 ].join("\n");
@@ -211,7 +211,7 @@ export const FALLBACK_TOOLS = [
     name: "rep",
     title: "One rep about what was just built",
     description:
-      "One rep about what was just built, or the one the user asked for by handle. Call once after a task finishes, never mid-task. Returns a block to print verbatim, or nothing. Never solve or hint at it.",
+      "One rep about what was just built, or the one the user asked for by handle. Call once as the last step of a turn that changed files, before your final reply, unless the turn ends by asking the user something; uncommitted or untested work counts. Returns a block to print verbatim, or nothing. Never solve or hint at it.",
     inputSchema: {
       type: "object",
       properties: {
@@ -219,6 +219,7 @@ export const FALLBACK_TOOLS = [
         ask: { type: "string" },
         lane: { type: "string", enum: ["asked"] },
         topic: { type: "string" },
+        topics: { type: "array", items: { type: "string" } },
         kind: { type: "string" },
         exclude: { type: "string" },
       },

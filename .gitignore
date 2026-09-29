@@ -1,4 +1,5 @@
 node_modules/
 dist/
+classifier/
 test/tmp-config/
 package-lock.json

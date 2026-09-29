@@ -1,5 +1,5 @@
+import type { Deadline } from "./clock.js";
 import {
-  HEAD_LINES,
   MAX_ADDED_LINES,
   MAX_HITS_PER_PHRASE,
   MAX_PATTERN,
@@ -12,14 +12,17 @@ import {
   MAX_WEIGHT,
   MIN_WEIGHT,
   PHRASE_WEIGHT,
+  HEAD_FACTOR,
+  HEAD_LINES,
   TOUCHED_SENT,
 } from "./constants.js";
 import {
+  type ChangedFile,
   isRecord,
+  stringList,
   type PathRule,
   type TouchedEntry,
   type TouchGrammar,
-  type TouchInput,
   type TouchVocabulary,
   type WordRule,
 } from "./types.js";
@@ -66,7 +69,13 @@ export function parseGrammar(value: unknown): TouchGrammar | null {
   for (const rule of value.words.slice(0, MAX_RULES)) {
     if (!isRecord(rule) || typeof rule.words !== "string" || typeof rule.key !== "string") continue;
     if (rule.words.length === 0) continue;
-    words.push({ words: rule.words, key: rule.key, weight: weightOf(rule.weight) });
+    const langs = stringList(rule.langs).map((ext) => ext.toLowerCase());
+    words.push({
+      words: rule.words.toLowerCase(),
+      key: rule.key,
+      weight: weightOf(rule.weight),
+      ...(langs.length > 0 ? { langs } : {}),
+    });
   }
   return { version: value.version, paths, words, vocabulary: parseVocabulary(value.vocabulary) };
 }
@@ -175,40 +184,68 @@ export function knownExtensions(grammar: TouchGrammar, names: readonly unknown[]
   return resolved(names, (name) => (extensions.has(name) ? name : undefined));
 }
 
-export function applyGrammar(grammar: TouchGrammar, input: TouchInput): TouchedEntry[] {
+export function extensionOf(path: string): string {
+  const base = (path.split("/").at(-1) ?? path).toLowerCase();
+  if (base === "dockerfile" || base.startsWith("dockerfile.")) return "dockerfile";
+  const dot = base.lastIndexOf(".");
+  return dot <= 0 ? "" : base.slice(dot + 1);
+}
+
+export function scoreFiles(
+  grammar: TouchGrammar,
+  files: readonly ChangedFile[],
+  deadline: Deadline,
+  prose: readonly string[] = [],
+): TouchedEntry[] {
   const { paths, words } = compiled(grammar);
   const score = new Map<string, number>();
   const bump = (key: string, weight: number) => score.set(key, (score.get(key) ?? 0) + weight);
-  for (const path of input.paths) {
-    if (input.deadline.passed()) break;
-    for (const { rule, re } of paths) if (re.test(path)) bump(rule.key, rule.weight);
+
+  for (const file of files) {
+    if (deadline.passed()) break;
+    for (const { rule, re } of paths) if (re.test(file.path)) bump(rule.key, rule.weight);
   }
-  const scan = (lines: readonly string[], factor: number) => {
-    const hits = new Map<string, number>();
-    for (const raw of lines) {
-      if (input.deadline.passed()) return;
+
+  const scan = (lines: readonly string[], allows: (rule: WordRule) => boolean, factor: number) => {
+    const hits = new Map<WordRule, number>();
+    for (const raw of lines.slice(0, MAX_ADDED_LINES)) {
+      if (deadline.passed()) break;
       const line = raw.toLowerCase();
       for (const { rule, re } of words) {
-        if (!line.includes(rule.words) || !re.test(line)) continue;
-        const seen = hits.get(rule.words) ?? 0;
-        if (seen >= MAX_HITS_PER_PHRASE) continue;
-        hits.set(rule.words, seen + 1);
-        bump(rule.key, rule.weight * factor);
+        if (!line.includes(rule.words) || !allows(rule) || !re.test(line)) continue;
+        hits.set(rule, (hits.get(rule) ?? 0) + 1);
       }
     }
+    for (const [rule, count] of hits) {
+      bump(rule.key, rule.weight * factor * (1 + Math.log2(Math.min(count, MAX_HITS_PER_PHRASE))));
+    }
   };
-  scan(input.addedLines.slice(0, MAX_ADDED_LINES), 1);
+
+  const exts = new Set<string>();
+  for (const file of files) {
+    if (file.status === "deleted") continue;
+    const ext = extensionOf(file.path);
+    exts.add(ext);
+    const inFile = (rule: WordRule) => rule.langs === undefined || rule.langs.includes(ext);
+    scan(file.added, inFile, 1);
+    if (file.status === "modified" && file.head !== undefined) {
+      scan(file.head.slice(0, HEAD_LINES), inFile, HEAD_FACTOR);
+    }
+  }
+  const openOrWritten = (rule: WordRule) =>
+    rule.langs === undefined || rule.langs.some((ext) => exts.has(ext));
   scan(
-    input.heads.flatMap((head) => head.split("\n").slice(0, HEAD_LINES)),
-    0.5,
+    prose.flatMap((text) => text.split("\n")),
+    openOrWritten,
+    1,
   );
-  return [...score.entries()]
-    .map(([key, weight]) => ({
-      key,
-      weight: Math.max(MIN_WEIGHT, Math.min(MAX_WEIGHT, Math.round(weight))),
-    }))
-    .toSorted((a, b) => b.weight - a.weight || a.key.localeCompare(b.key))
-    .slice(0, TOUCHED_SENT);
+
+  const ranked = [...score.entries()].toSorted((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  const top = ranked[0]?.[1] ?? 0;
+  return ranked.slice(0, TOUCHED_SENT).map(([key, weight]) => ({
+    key,
+    weight: Math.max(MIN_WEIGHT, Math.round((weight / top) * MAX_WEIGHT)),
+  }));
 }
 
 export function topicOf(key: string): string {

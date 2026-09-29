@@ -1,4 +1,4 @@
-import type { Deadline, EpochMs } from "./clock.js";
+import type { EpochMs } from "./clock.js";
 import { INTENSITIES } from "./constants.js";
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
@@ -151,7 +151,7 @@ export type Config = {
   dialog?: boolean;
   elicitationCapable?: boolean;
   setupAt?: EpochMs;
-  lastPushTouch?: string;
+  pushed?: Record<string, Pushed> | undefined;
   armedRep?: { id: string } | undefined;
   held?: HeldBlock | undefined;
   backgroundSeen?: Record<string, EpochMs> | undefined;
@@ -172,8 +172,10 @@ export type StoredRep = {
   readonly topicSlug: string;
   readonly handle?: string;
   readonly lane?: RepLane;
+  readonly topicSource?: string;
   readonly text: string;
   readonly servedAt: EpochMs;
+  readonly project?: string;
   readonly answeredAt?: EpochMs;
   readonly shown?: number;
   readonly verifiedAt?: EpochMs;
@@ -183,7 +185,12 @@ export type StoredRep = {
 };
 
 export type PathRule = { readonly pattern: string; readonly key: string; readonly weight: number };
-export type WordRule = { readonly words: string; readonly key: string; readonly weight: number };
+export type WordRule = {
+  readonly words: string;
+  readonly key: string;
+  readonly weight: number;
+  readonly langs?: readonly string[];
+};
 
 export type TouchVocabulary = {
   handles: readonly string[];
@@ -200,11 +207,15 @@ export type TouchGrammar = {
 
 export type TouchedEntry = { readonly key: string; readonly weight: number };
 
-export type TouchInput = {
-  paths: readonly string[];
-  addedLines: readonly string[];
-  heads: readonly string[];
-  deadline: Deadline;
+export type TreeSnapshot = Readonly<Record<string, string>>;
+
+export type Pushed = { readonly mark?: string; readonly snapshot: TreeSnapshot };
+
+export type ChangedFile = {
+  readonly path: string;
+  readonly status: "modified" | "added" | "deleted";
+  readonly added: readonly string[];
+  readonly head?: readonly string[];
 };
 
 export type LocalHints = {

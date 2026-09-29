@@ -14,10 +14,11 @@ import {
   HOOK_DEADLINE_MS,
   INFER_BUDGET_MS,
   MAX_SHORT_PROMPT_CHARS,
-  REMIND_LIMIT,
 } from "./constants.js";
+import { noteDecision, noteShown, type Outcome } from "./decisions.js";
 import { isRepBlock } from "./format.js";
-import { inferSession } from "./infer.js";
+import { inferSession, type Session } from "./infer.js";
+import { projectOf } from "./project.js";
 import { backgroundTaskIds, stillWorking, unattended } from "./session.js";
 import {
   cachedGrammar,
@@ -31,6 +32,9 @@ import {
   observeVerdict,
   openOffer,
   pendingRep,
+  pushedIn,
+  remindable,
+  snapshotOnly,
 } from "./store.js";
 import { allMuted } from "./touch.js";
 import {
@@ -42,6 +46,7 @@ import {
   type HookOutput,
   type OfferEntry,
   type Pick,
+  type Pushed,
   type StoredRep,
   type ToolReply,
 } from "./types.js";
@@ -185,11 +190,15 @@ async function gradeLetter(
   return context(recordedContext(action.withMessage));
 }
 
-function servedBlock(result: ApiResult<ToolReply>, now: clock.EpochMs): string | null {
+function servedBlock(
+  result: ApiResult<ToolReply>,
+  now: clock.EpochMs,
+  project: string,
+): string | null {
   if (!result.ok) return null;
   const data = result.value.data ?? {};
   observeClient(result.value.client, now);
-  observeRep(data, result.value.text, now);
+  observeRep(data, result.value.text, now, project);
   if (data.kind !== "question" && data.kind !== "insight") return null;
   if (!isRepBlock(result.value.text)) return null;
   return result.value.text;
@@ -200,8 +209,12 @@ function questionId(result: ApiResult<ToolReply>): string | undefined {
   return data.kind === "question" && typeof data.id === "string" ? data.id : undefined;
 }
 
-function holdAsked(result: ApiResult<ToolReply>, now: clock.EpochMs): HookOutput | null {
-  const block = servedBlock(result, now);
+function holdAsked(
+  result: ApiResult<ToolReply>,
+  now: clock.EpochMs,
+  project: string,
+): HookOutput | null {
+  const block = servedBlock(result, now, project);
   if (block === null) return null;
   const arm = questionId(result);
   updateConfig({
@@ -231,37 +244,80 @@ function upgradeLine(client: ClientState | undefined): string {
 
 function printServed(
   result: ApiResult<ToolReply>,
-  mark: string | null,
+  session: Session | undefined,
   now: clock.EpochMs,
+  project: string,
 ): HookOutput | null {
-  const block = servedBlock(result, now);
-  if (block === null) return null;
-  if (mark !== null) updateConfig({ lastPushTouch: mark });
+  const block = servedBlock(result, now, project);
+  if (block === null) {
+    noteDecision({
+      at: now,
+      via: "hook",
+      outcome: result.ok ? "server-quiet" : "server-unreachable",
+      project,
+      ...(session === undefined ? {} : { top: session.hints.touched }),
+    });
+    return null;
+  }
   const armed = questionId(result);
   if (armed !== undefined) updateConfig({ armedRep: { id: armed } });
+  const because = noteShown({ via: "hook", project, session, handle: servedHandle(result), now });
   return {
     systemMessage: hostSystemMessage(
       block,
-      upgradeLine(result.ok ? result.value.client : undefined),
+      becauseLine(because) + upgradeLine(result.ok ? result.value.client : undefined),
     ),
   };
 }
 
-async function fetchRep(cwd: string, now: clock.EpochMs): Promise<HookOutput | null> {
-  const { hints, mark } = await inferSession(cwd, INFER_BUDGET_MS, cachedGrammar());
-  if (mark !== null && mark === readConfig().lastPushTouch) return null;
-  if (allMuted(hints.touched, cachedMuteKeys(now))) return null;
+function servedHandle(result: ApiResult<ToolReply>): string | undefined {
+  const data = result.ok ? (result.value.data ?? {}) : {};
+  if (typeof data.handle === "string") return data.handle;
+  return typeof data.topicSlug === "string" && data.topicSlug !== "" ? data.topicSlug : undefined;
+}
+
+function becauseLine(path: string | null): string {
+  return path === null ? "" : `\n${tint(`  Because you edited ${path}.`, "dim")}`;
+}
+
+async function readTurn(
+  cwd: string,
+  prose: readonly string[],
+  previous: Pushed | undefined,
+): Promise<Session> {
+  return await inferSession(cwd, INFER_BUDGET_MS, cachedGrammar(), prose, previous);
+}
+
+async function fetchRep(
+  cwd: string,
+  prose: readonly string[],
+  now: clock.EpochMs,
+): Promise<HookOutput | null> {
+  const project = projectOf(cwd);
+  const session = await readTurn(cwd, prose, pushedIn(project));
+  const { hints } = session;
+  if (session.unchanged) {
+    noteDecision({ at: now, via: "hook", outcome: "tree-unchanged", project });
+    return null;
+  }
+  if (allMuted(hints.touched, cachedMuteKeys(now))) {
+    noteDecision({ at: now, via: "hook", outcome: "all-muted", project, top: hints.touched });
+    return null;
+  }
   const result = await api.rep({ hints, kind: "auto" }, HOOK_DEADLINE_MS);
   if (!result.ok) updateConfig({ nextEligibleAt: now + DEGRADED_BACKOFF_MS });
-  return printServed(result, mark, now);
+  return printServed(result, session, now, project);
 }
 
 async function remindRep(
   rep: StoredRep,
   cwd: string,
+  prose: readonly string[],
   now: clock.EpochMs,
 ): Promise<HookOutput | null> {
-  const { hints, mark } = await inferSession(cwd, INFER_BUDGET_MS, cachedGrammar());
+  const project = projectOf(cwd);
+  const session = await readTurn(cwd, prose, snapshotOnly(pushedIn(project)));
+  const { hints } = session;
   const slot = rep.shown ?? 0;
   const result = await api.rep(
     { hints, kind: "auto", pending: rep.id, reminders: slot },
@@ -279,13 +335,13 @@ async function remindRep(
     return { systemMessage: hostSystemMessage(rep.text, "") };
   }
   if (data.kind === "insight") {
-    const printed = printServed(result, null, now);
+    const printed = printServed(result, undefined, now, project);
     if (printed === null) return null;
     noteReprinted(rep.id, now);
     return printed;
   }
   noteResolvedElsewhere(rep.id, now);
-  return printServed(result, mark, now);
+  return printServed(result, session, now, project);
 }
 
 export type HookState = {
@@ -301,24 +357,28 @@ export type HookState = {
 
 export type HookAction =
   | { kind: "ignore" }
+  | { kind: "quiet"; reason: Outcome; cwd: string }
   | { kind: "grade"; id: string; pick: Pick; sure?: boolean; withMessage: boolean }
-  | { kind: "take"; handle: string }
-  | { kind: "remind"; rep: StoredRep; cwd: string }
+  | { kind: "take"; handle: string; cwd: string }
+  | { kind: "remind"; rep: StoredRep; cwd: string; prose: readonly string[] }
   | { kind: "show"; held: HeldBlock }
-  | { kind: "push"; cwd: string };
+  | { kind: "push"; cwd: string; prose: readonly string[] };
 
 function decideStop(input: HookInput, state: HookState, now: clock.EpochMs): HookAction {
   if (!state.hasToken) return { kind: "ignore" };
   if (state.held) return { kind: "show", held: state.held };
-  if (endsOnQuestion(input.last_assistant_message)) return { kind: "ignore" };
-  if (state.nextEligibleAt !== undefined && clock.locallyQuiet(state.nextEligibleAt, now)) {
-    return { kind: "ignore" };
-  }
-  if (state.busy) return { kind: "ignore" };
   const cwd = input.cwd ?? process.cwd();
-  const pending = state.pending;
-  if (pending && (pending.shown ?? 0) < REMIND_LIMIT) return { kind: "remind", rep: pending, cwd };
-  return { kind: "push", cwd };
+  if (endsOnQuestion(input.last_assistant_message)) {
+    return { kind: "quiet", reason: "ended-on-question", cwd };
+  }
+  if (state.nextEligibleAt !== undefined && clock.locallyQuiet(state.nextEligibleAt, now)) {
+    return { kind: "quiet", reason: "gap", cwd };
+  }
+  if (state.busy) return { kind: "quiet", reason: "background-work", cwd };
+  const prose = input.last_assistant_message === undefined ? [] : [input.last_assistant_message];
+  const due = remindable(state.pending);
+  if (due) return { kind: "remind", rep: due, cwd, prose };
+  return { kind: "push", cwd, prose };
 }
 
 export function decide(input: HookInput, state: HookState, now: clock.EpochMs): HookAction {
@@ -337,7 +397,7 @@ export function decide(input: HookInput, state: HookState, now: clock.EpochMs): 
 
   const digit = digitOf(prompt);
   const entry = digit === null || state.pending || state.held ? undefined : state.offer[digit - 1];
-  if (entry) return { kind: "take", handle: entry.handle };
+  if (entry) return { kind: "take", handle: entry.handle, cwd: input.cwd ?? process.cwd() };
   return { kind: "ignore" };
 }
 
@@ -360,7 +420,7 @@ export function readState(now: clock.EpochMs, input: HookInput = {}): HookState 
     busy,
     held: held !== undefined && now - held.at <= HELD_TTL_MS ? held : undefined,
     nextEligibleAt: config.nextEligibleAt,
-    pending: pendingRep(now),
+    pending: pendingRep(now, projectOf(input.cwd ?? process.cwd())),
     armed: config.armedRep?.id,
     offer: openOffer(now),
   };
@@ -370,16 +430,28 @@ export async function perform(action: HookAction, now: clock.EpochMs): Promise<H
   switch (action.kind) {
     case "ignore":
       return null;
+    case "quiet":
+      noteDecision({
+        at: now,
+        via: "hook",
+        outcome: action.reason,
+        project: projectOf(action.cwd),
+      });
+      return null;
     case "grade":
       return await gradeLetter(action, now);
     case "show":
       return showHeld(action.held);
     case "remind":
-      return await remindRep(action.rep, action.cwd, now);
+      return await remindRep(action.rep, action.cwd, action.prose, now);
     case "take":
-      return holdAsked(await api.rep({ ask: action.handle }, HOOK_DEADLINE_MS), now);
+      return holdAsked(
+        await api.rep({ ask: action.handle }, HOOK_DEADLINE_MS),
+        now,
+        projectOf(action.cwd),
+      );
     case "push":
-      return await fetchRep(action.cwd, now);
+      return await fetchRep(action.cwd, action.prose, now);
   }
 }
 

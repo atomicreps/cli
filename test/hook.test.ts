@@ -600,6 +600,51 @@ describe("atomicreps hook", () => {
   });
 });
 
+describe("a pending rep belongs to one project", () => {
+  it("a rep pending in project A does not count as pending in project B", async () => {
+    const { store } = await load();
+    const now = Date.now();
+    store.observeRep({ kind: "question", id: "qa", topicSlug: "react" }, BLOCK, now, "/work/a");
+    expect(store.pendingRep(now, "/work/a")?.id).toBe("qa");
+    expect(store.pendingRep(now, "/work/b")).toBeUndefined();
+    expect(store.pendingRep(now)?.id, "a caller with no project sees the newest").toBe("qa");
+
+    store.observeRep({ kind: "question", id: "qb", topicSlug: "css" }, BLOCK, now, "/work/b");
+    expect(store.pendingRep(now, "/work/a")?.id, "B's serve does not replace A's").toBe("qa");
+    expect(store.pendingRep(now, "/work/b")?.id).toBe("qb");
+  });
+
+  it("a rep stored without a project counts everywhere while it is the newest", async () => {
+    const { store } = await load();
+    const now = Date.now();
+    store.observeRep({ kind: "question", id: "old", topicSlug: "react" }, BLOCK, now);
+    expect(store.pendingRep(now, "/work/a")?.id).toBe("old");
+    expect(store.pendingRep(now, "/work/b")?.id).toBe("old");
+
+    store.observeRep({ kind: "question", id: "qa", topicSlug: "css" }, BLOCK, now, "/work/a");
+    expect(store.pendingRep(now, "/work/b"), "a newer rep replaced it, as before").toBeUndefined();
+  });
+
+  it("a Stop in another repository fetches a fresh rep instead of reminding this one", async () => {
+    const { hook, config, store } = await load();
+    config.writeConfig({ token: "arep_test" });
+    store.observeRep(
+      { kind: "question", id: "q7", topicSlug: "react" },
+      BLOCK,
+      Date.now() - 60_000,
+      "/some/other/repository",
+    );
+    const door = repDoor({ version: "0.0.0", notes: "" });
+    vi.stubGlobal("fetch", door);
+
+    await hook.runHook(stopIn());
+    const [, init] = (door.mock.calls[0] ?? []) as unknown as [unknown, RequestInit | undefined];
+    const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+    expect(body.pending, "the other repository's rep is not named").toBeUndefined();
+    expect(store.pendingRep(Date.now(), "/some/other/repository")?.id).toBe("q7");
+  });
+});
+
 describe("two processes, two versions", () => {
   it("names a bridge the editor left behind, once, under the printed rep", async () => {
     const { hook, config } = await load();
@@ -617,7 +662,7 @@ describe("two processes, two versions", () => {
     expect(first).toContain("https://example.test/CHANGELOG.md");
     expect(config.readConfig().bridgeVersion).toBeUndefined();
 
-    config.updateConfig({ nextEligibleAt: 0, lastPushTouch: "" });
+    config.updateConfig({ nextEligibleAt: 0, pushed: {} });
     const second = messageOf(await hook.runHook(stopIn())) ?? "";
     expect(second, "said once, not every turn").not.toContain("Restart your editor");
     delete process.env.NO_COLOR;
@@ -843,7 +888,10 @@ describe("an automatic rep needs something to have been built", () => {
   it("opens no socket at all when nothing has been built since the last rep", async () => {
     const { hook, config } = await load();
     const cwd = repo("export const a = 1;");
-    config.writeConfig({ token: "arep_test", lastPushTouch: (await markOf(cwd)) ?? "" });
+    config.writeConfig({
+      token: "arep_test",
+      pushed: { [cwd]: { mark: (await markOf(cwd)) ?? "", snapshot: {} } },
+    });
     const door = doorWithARep();
     vi.stubGlobal("fetch", door);
 
@@ -851,25 +899,62 @@ describe("an automatic rep needs something to have been built", () => {
     expect(door, "an unchanged tree must not reach the server").not.toHaveBeenCalled();
   });
 
+  it("compares the mark only within one project", async () => {
+    const { hook, config } = await load();
+    const first = repo("export const a = 1;");
+    const second = repo("export const a = 1;");
+    const mark = (await markOf(first)) ?? "";
+    expect(await markOf(second), "identical trees, identical marks").toBe(mark);
+    config.writeConfig({ token: "arep_test", pushed: { [first]: { mark, snapshot: {} } } });
+    const door = doorWithARep();
+    vi.stubGlobal("fetch", door);
+
+    expect(messageOf(await hook.runHook(stopAt(second)))).toContain(REP_MARK_CHAR);
+    expect(door, "another project's mark says nothing about this one").toHaveBeenCalled();
+    const pushed = config.readConfig().pushed ?? {};
+    expect(Object.keys(pushed)).toEqual([first, second]);
+    expect(pushed[second]?.mark).toBe(mark);
+  });
+
   it("asks when the tree has moved since the mark", async () => {
     const { hook, config } = await load();
     const cwd = repo("export const a = 1;");
-    config.writeConfig({ token: "arep_test", lastPushTouch: "deadbeef" });
+    config.writeConfig({
+      token: "arep_test",
+      pushed: { [cwd]: { mark: "deadbeef", snapshot: {} } },
+    });
     const door = doorWithARep();
     vi.stubGlobal("fetch", door);
 
     const out = await hook.runHook(stopAt(cwd));
     expect(messageOf(out)).toContain(REP_MARK_CHAR);
     expect(door).toHaveBeenCalled();
-    expect(config.readConfig().lastPushTouch, "a served rep moves the mark").toBe(
+    expect(config.readConfig().pushed?.[cwd]?.mark, "a served rep moves the mark").toBe(
       await markOf(cwd),
     );
+  });
+
+  it("a served rep stores the tree it was served on and logs why it appeared", async () => {
+    const { hook, config } = await load();
+    const cwd = repo("export const a = 1;");
+    config.writeConfig({ token: "arep_test" });
+    vi.stubGlobal("fetch", doorWithARep());
+
+    await hook.runHook(stopAt(cwd));
+    expect(Object.keys(config.readConfig().pushed?.[cwd]?.snapshot ?? {}).length).toBeGreaterThan(
+      0,
+    );
+    const { recentDecisions } = await import("../src/decisions.js");
+    expect(recentDecisions(1)[0]).toMatchObject({ via: "hook", outcome: "shown", project: cwd });
   });
 
   it("does not spend the change on a server that said nothing", async () => {
     const { hook, config } = await load();
     const cwd = repo("export const a = 1;");
-    config.writeConfig({ token: "arep_test", lastPushTouch: "deadbeef" });
+    config.writeConfig({
+      token: "arep_test",
+      pushed: { [cwd]: { mark: "deadbeef", snapshot: {} } },
+    });
     vi.stubGlobal(
       "fetch",
       vi.fn(
@@ -881,9 +966,12 @@ describe("an automatic rep needs something to have been built", () => {
     );
 
     await hook.runHook(stopAt(cwd));
-    expect(config.readConfig().lastPushTouch, "a silent server leaves the work unasked").toBe(
+    expect(config.readConfig().pushed?.[cwd]?.mark, "a silent server leaves the work unasked").toBe(
       "deadbeef",
     );
+    expect(config.readConfig().pushed?.[cwd]?.snapshot, "nor the snapshot").toEqual({});
+    const { recentDecisions } = await import("../src/decisions.js");
+    expect(recentDecisions(1)[0]?.outcome).toBe("server-quiet");
   });
 });
 

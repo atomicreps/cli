@@ -58,3 +58,20 @@ export function writeFileAtomic(path: string, text: string, mode?: number): void
 export function writeJsonAtomic(path: string, value: unknown, mode?: number): void {
   writeFileAtomic(path, JSON.stringify(value, null, 2), mode);
 }
+
+export type SettingsRead = { settings: Record<string, unknown> } | { failed: string };
+
+export function readSettingsFile(path: string, entry: string): SettingsRead {
+  if (!existsSync(path)) return { settings: {} };
+  let raw: unknown;
+  try {
+    raw = JSON.parse(readFileSync(path, "utf8"));
+  } catch {
+    return { failed: `could not parse the file; add ${entry} by hand` };
+  }
+  return isRecord(raw) ? { settings: raw } : { failed: "settings.json is not an object" };
+}
+
+export function writeSettingsFile(path: string, settings: Record<string, unknown>): void {
+  writeFileAtomic(path, `${JSON.stringify(settings, null, 2)}\n`);
+}

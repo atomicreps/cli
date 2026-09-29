@@ -3,7 +3,13 @@ import { dirname, join, resolve } from "node:path";
 
 import { configPath, isAlpha } from "./config.js";
 import type { Applied } from "./connect.js";
-import { ensureDir, writeFileAtomic } from "./files.js";
+import {
+  ensureDir,
+  readSettingsFile,
+  type SettingsRead,
+  writeFileAtomic,
+  writeSettingsFile,
+} from "./files.js";
 import { isRecord } from "./types.js";
 
 const OURS = /\batomicreps\b[^\n|]*\bstatusline\b/;
@@ -37,15 +43,8 @@ function wrapperScript(original: string, ours: string): string {
 
 type Settings = Record<string, unknown>;
 
-function readSettings(path: string): { settings: Settings } | { failed: string } {
-  if (!existsSync(path)) return { settings: {} };
-  let raw: unknown;
-  try {
-    raw = JSON.parse(readFileSync(path, "utf8"));
-  } catch {
-    return { failed: "could not parse the file; add the status line by hand" };
-  }
-  return isRecord(raw) ? { settings: raw } : { failed: "settings.json is not an object" };
+function readSettings(path: string): SettingsRead {
+  return readSettingsFile(path, "the status line");
 }
 
 function commandOf(settings: Settings): string | undefined {
@@ -56,10 +55,6 @@ function commandOf(settings: Settings): string | undefined {
 function isOurs(command: string): boolean {
   const wrapper = statusLineWrapperPath();
   return OURS.test(command) || (command.includes(wrapper) && existsSync(wrapper));
-}
-
-function writeSettings(path: string, settings: Settings): void {
-  writeFileAtomic(path, `${JSON.stringify(settings, null, 2)}\n`);
 }
 
 export function statusLineWired(path: string): boolean {
@@ -99,12 +94,12 @@ export function unwireStatusLine(path: string): Applied {
   const wrapper = wrapperOf(command);
   const original = wrapper !== undefined && existsSync(wrapper) ? originalIn(wrapper) : undefined;
   if (original !== undefined && wrapper !== undefined) {
-    writeSettings(path, { ...settings, statusLine: { ...line, command: original } });
+    writeSettingsFile(path, { ...settings, statusLine: { ...line, command: original } });
     rmSync(wrapper, { force: true });
     return { state: "done", says: `your own status line is back (${original})` };
   }
   const { statusLine: _ours, ...rest } = settings;
-  writeSettings(path, rest);
+  writeSettingsFile(path, rest);
   return { state: "done", says: `removed from ${path}` };
 }
 
@@ -117,7 +112,10 @@ export function wireStatusLine(path: string, ours = statusLineCommand()): Applie
   const wrapper = statusLineWrapperPath();
   const wrapperGone = original?.includes(wrapper) === true && !existsSync(wrapper);
   if (line === undefined || wrapperGone) {
-    writeSettings(path, { ...settings, statusLine: { ...line, type: "command", command: ours } });
+    writeSettingsFile(path, {
+      ...settings,
+      statusLine: { ...line, type: "command", command: ours },
+    });
     return { state: "done", says: `set in ${path}` };
   }
   if (original === undefined || line.type !== "command") {
@@ -135,6 +133,9 @@ export function wireStatusLine(path: string, ours = statusLineCommand()): Applie
   }
   ensureDir(dirname(wrapper));
   writeFileAtomic(wrapper, wrapperScript(original, ours), 0o755);
-  writeSettings(path, { ...settings, statusLine: { ...line, command: `sh ${quoted(wrapper)}` } });
+  writeSettingsFile(path, {
+    ...settings,
+    statusLine: { ...line, command: `sh ${quoted(wrapper)}` },
+  });
   return { state: "done", says: `yours prints first, ours on a second row (${wrapper})` };
 }

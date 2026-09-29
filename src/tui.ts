@@ -1,5 +1,3 @@
-import { dirname, join } from "node:path";
-
 import { padTo, paint, stripAnsi } from "./ansi.js";
 import * as api from "./api.js";
 import { paintBlock } from "./block.js";
@@ -28,6 +26,7 @@ import {
   copilotAddCommand,
   cursorConfig,
   cursorMcpPath,
+  type Offer,
   windsurfMcpPath,
   vscodeAddCommand,
   vscodeConfig,
@@ -49,12 +48,13 @@ import {
   TOUCHED_SHOWN,
   TUI_INFER_BUDGET_MS,
 } from "./constants.js";
-import { readJsonFile } from "./files.js";
 import { SHARE_LABEL, shareUrlOf } from "./format.js";
+import { claudePluginNames, hookCommand, hooksOurs, hooksWired } from "./hooks-wire.js";
 import { inferHints } from "./infer.js";
 import { CADENCES, draftOf, gateScreen, install, levelsScreen, scopeScreen } from "./install.js";
 import { loopRows, type LoopOptions } from "./loop.js";
 import { pickMany, pickOne } from "./pick.js";
+import { projectOf } from "./project.js";
 import {
   beside,
   copyToClipboard,
@@ -293,7 +293,7 @@ async function repScreen(ask?: string): Promise<void> {
   );
   if (!served) return;
   const data = served.data ?? {};
-  observeRep(data, served.text, now);
+  observeRep(data, served.text, now, projectOf(process.cwd()));
   const id = str(data.id);
   if (data.kind !== "question" || id === undefined) {
     const reason = str(data.reason);
@@ -527,6 +527,12 @@ function connectSummary(picked: ReadonlySet<string>): {
   return { text: `${rows} on enter; the config is printed for anything else.`, ready: true };
 }
 
+function preTicked(offers: readonly Offer[]): Set<string> {
+  const hooks = offers.find(({ target }) => target.id === "hooks");
+  const plugin = claudePluginNames(claudeSettingsPath()).length > 0;
+  return hooks?.found === true && !plugin ? new Set(["hooks"]) : new Set();
+}
+
 export async function connect(interactive = isInteractive(), pin = false): Promise<void> {
   if (!interactive) {
     plain([title("Connect your coding agent."), "", ...manualLines(pin)]);
@@ -545,6 +551,7 @@ export async function connect(interactive = isInteractive(), pin = false): Promi
       status: target.id === "manual" ? "" : found ? "found" : "not here",
       known: found,
     })),
+    picked: preTicked(offers),
     heading: "Connect your coding agent.",
     intro:
       "Nothing on this screen has happened yet. Enter does exactly the rows you tick, and nothing else on this machine changes.",
@@ -642,16 +649,16 @@ export async function unwire(interactive = isInteractive()): Promise<void> {
   );
 }
 
-function claudePluginLine(): string {
-  const registry = readJsonFile<{ plugins?: Record<string, unknown> }>(
-    join(dirname(claudeSettingsPath()), "plugins", "installed_plugins.json"),
-  );
-  const names = Object.keys(registry?.plugins ?? {}).filter((name) =>
-    name.startsWith("atomicreps"),
-  );
-  return names.length > 0
-    ? `claude plugin: ${names.join(", ")}`
-    : "plugin: not listed yet; the MCP server is all you need";
+function claudeHookLine(): string {
+  const path = claudeSettingsPath();
+  const plugins = claudePluginNames(path);
+  const inSettings = hooksOurs(path);
+  if (plugins.length > 0 && inSettings) {
+    return `claude hooks: in settings.json AND in the ${plugins.join(", ")} plugin, so every question prints twice. Uninstall the plugin, or delete the "${hookCommand()}" entries under hooks in ${path}.`;
+  }
+  if (plugins.length > 0) return `claude hooks: from the ${plugins.join(", ")} plugin`;
+  if (hooksWired(path)) return "claude hooks: wired";
+  return "claude hooks: not wired, so a rep comes only when the agent asks (run npx atomicreps connect)";
 }
 
 export async function doctor(): Promise<number> {
@@ -722,7 +729,7 @@ export async function doctor(): Promise<number> {
       ? "claude allowlist: complete"
       : `claude allowlist: missing ${missing.join(", ")} (run npx atomicreps connect)`,
   );
-  lines.push(claudePluginLine());
+  lines.push(claudeHookLine());
   lines.push(
     statusLineWired(claudeSettingsPath())
       ? "claude status line: wired"

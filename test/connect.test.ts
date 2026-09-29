@@ -41,6 +41,7 @@ describe("which rows are offered", () => {
   it("keeps catalog order inside a band rather than shuffling on every run", () => {
     expect(orderOffers(offers({})).map((offer) => offer.target.id)).toEqual([
       "claude",
+      "hooks",
       "allowlist",
       "statusline",
       "vscode",

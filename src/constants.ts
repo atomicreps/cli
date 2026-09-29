@@ -44,6 +44,7 @@ export const HELD_TTL_MS = PENDING_TTL_MS;
 export const BACKGROUND_STALE_MS = 2 * 60 * 60_000;
 export const BACKGROUND_SEEN_KEPT_MS = 24 * 60 * 60_000;
 export const REPS_KEPT = 20;
+export const PUSH_MARKS_KEPT = 20;
 
 export const MS_PER_MINUTE = 60_000;
 export const MAX_MUTE_MINUTES = 1440;
@@ -52,6 +53,7 @@ export const QUICK_MUTE_MS = QUICK_MUTE_MINUTES * MS_PER_MINUTE;
 
 export const MAX_FILES_READ = 8;
 export const MAX_BYTES_PER_FILE = 8 * 1024;
+export const MAX_NEW_FILE_BYTES = 32 * 1024;
 export const MAX_CHANGED = 40;
 export const MAX_DIFF_BYTES = 96 * 1024;
 export const MAX_IMPORTS_PER_FILE = 24;
@@ -78,8 +80,10 @@ export const SCAN_SKIP: ReadonlySet<string> = new Set([
 ]);
 
 export const TOUCHED_SENT = 12;
+export const AGENT_TOPICS_SENT = 3;
 export const MAX_ADDED_LINES = 400;
 export const HEAD_LINES = 60;
+export const HEAD_FACTOR = 0.25;
 export const MAX_RULES = 8192;
 export const MAX_PATTERN = 200;
 export const MAX_HITS_PER_PHRASE = 3;

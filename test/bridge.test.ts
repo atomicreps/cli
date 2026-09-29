@@ -258,7 +258,7 @@ describe("the stdio bridge", () => {
           paths: [],
           words: [{ words: "useeffect cleanup", key: "react.effects", weight: 2 }],
           vocabulary: {
-            handles: ["react.effects", "react.hooks_core"],
+            handles: ["react", "react.effects", "react.hooks_core"],
             packages: ["react"],
             extensions: ["ts"],
           },
@@ -311,6 +311,28 @@ describe("the stdio bridge", () => {
     const hints = args.hints as { touched: Array<{ key: string; weight: number }> };
     expect(hints.touched).toContainEqual({ key: "react.effects", weight: 3 });
     expect(Object.keys(args).toSorted()).toEqual(["hints"]);
+  });
+
+  it("rep: the agent's topic label is forwarded only as catalog topics, never a sub-skill or free text", async () => {
+    const door = servingDoor();
+    const { send } = await bridgeWith(door);
+    cacheGrammar();
+    await send({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "initialize",
+      params: { protocolVersion: "2025-11-25" },
+    });
+    await send({
+      jsonrpc: "2.0",
+      id: 2,
+      method: "tools/call",
+      params: {
+        name: "rep",
+        arguments: { topics: ["React", "react.hooks_core", "card fraud", "sql", "react"] },
+      },
+    });
+    expect(argumentsOf(door.seen[1]).topics).toEqual(["react"]);
   });
 
   it("rep: an ask is forwarded only when it is a handle the server publishes", async () => {
@@ -561,62 +583,120 @@ describe("the stdio bridge", () => {
     expect(readConfig().lastQuiet).toContain("unauthorized");
   });
 
-  it("hides rep while one is pending, announces the change, and puts it back when the letter lands", async () => {
-    const door = fakeDoor((body) => {
-      if (body.method === "server/discover") return DISCOVER;
-      if (body.method === "tools/list") return TOOLS;
-      const name = (body.params as { name?: string }).name;
-      if (name === "rep") {
-        return {
-          resultType: "complete",
-          content: [{ type: "text", text: BLOCK }],
-          structuredContent: {
-            kind: "question",
-            text: BLOCK,
-            id: "q1",
-            topicSlug: "react",
-            nextEligibleAt: Date.now() + 60 * 60_000,
-            lane: "pushed",
-          },
-        };
-      }
-      return {
-        resultType: "complete",
-        content: [{ type: "text", text: "Correct." }],
-        structuredContent: { kind: "verdict", status: "answered", correct: true },
-      };
-    });
+  it("keeps rep on the tool list while a rep is pending", async () => {
+    const door = fakeDoor((body) => (body.method === "server/discover" ? DISCOVER : TOOLS));
     const { out, send } = await bridgeWith(door);
-    const names = async (id: number) => {
-      await send({ jsonrpc: "2.0", id, method: "tools/list", params: {} });
-      const listed = out.find((m) => (m as { id?: unknown }).id === id) as {
-        result: { tools: Array<{ name: string }> };
-      };
-      return listed.result.tools.map((t) => t.name);
-    };
-    const flips = () => out.filter((m) => m.method === "notifications/tools/list_changed").length;
-
+    const store = await import("../src/store.js");
     await send({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} });
-    expect(await names(2)).toEqual(["rep", "answer", "me", "settings"]);
-    const quiet = flips();
+    store.observeRep({ kind: "question", id: "q1", topicSlug: "react" }, BLOCK, Date.now());
+    expect(store.pendingRep()?.id).toBe("q1");
+
+    await send({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} });
+    const listed = out.find((m) => (m as { id?: unknown }).id === 2) as {
+      result: { tools: Array<{ name: string }> };
+    };
+    expect(listed.result.tools.map((t) => t.name)).toEqual(["rep", "answer", "me", "settings"]);
+    expect(out.some((m) => m.method === "notifications/tools/list_changed")).toBe(false);
+  });
+
+  function openDoor(reply: (args: Record<string, unknown>) => Record<string, unknown>) {
+    return fakeDoor((body) => {
+      if (body.method === "server/discover") return DISCOVER;
+      const params = body.params as { arguments?: Record<string, unknown> };
+      const structuredContent = reply(params.arguments ?? {});
+      const text = typeof structuredContent.text === "string" ? structuredContent.text : "";
+      return { resultType: "complete", content: [{ type: "text", text }], structuredContent };
+    });
+  }
+
+  it("rep with a rep pending names it to the server and prints this machine's copy when it is still open", async () => {
+    const door = openDoor(() => ({ kind: "open", id: "q1", nextEligibleAt: Date.now() + 60_000 }));
+    const { out, send } = await bridgeWith(door);
+    const store = await import("../src/store.js");
+    const { readConfig } = await import("../src/config.js");
+    await send({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} });
+    store.observeRep(
+      { kind: "question", id: "q1", topicSlug: "react", handle: "react.hooks_core" },
+      BLOCK,
+      Date.now() - 60_000,
+      configHome,
+    );
 
     await send({
       jsonrpc: "2.0",
-      id: 3,
+      id: 2,
       method: "tools/call",
       params: { name: "rep", arguments: {} },
     });
-    expect(flips()).toBe(quiet + 1);
-    expect(await names(4)).toEqual(["answer", "me", "settings"]);
+
+    const sent = argumentsOf(door.seen[1]);
+    expect(sent.pending).toBe("q1");
+    expect(sent.reminders).toBe(0);
+    const reply = out.find((m) => (m as { id?: unknown }).id === 2) as {
+      result: { content: Array<{ text: string }>; structuredContent: Record<string, unknown> };
+    };
+    expect(reply.result.content[0]?.text).toBe(BLOCK);
+    expect(reply.result.structuredContent).toMatchObject({
+      kind: "question",
+      id: "q1",
+      text: BLOCK,
+    });
+    expect(store.pendingRep()?.shown, "the reprint spends one reminder slot").toBe(1);
+    expect(store.pendingRep()?.id, "and the same letter still answers it").toBe("q1");
+    expect((readConfig().nextEligibleAt ?? 0) > Date.now(), "and holds the next turn off").toBe(
+      true,
+    );
+  });
+
+  it("rep with a rep pending that was answered elsewhere closes it and passes on what the server served", async () => {
+    const NEXT = BLOCK.replace("Which hook?", "Which effect?");
+    const door = openDoor(() => ({ kind: "question", id: "q2", topicSlug: "react", text: NEXT }));
+    const { out, send } = await bridgeWith(door);
+    const store = await import("../src/store.js");
+    await send({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} });
+    store.observeRep(
+      { kind: "question", id: "q1", topicSlug: "react" },
+      BLOCK,
+      Date.now() - 60_000,
+    );
 
     await send({
       jsonrpc: "2.0",
-      id: 5,
+      id: 2,
       method: "tools/call",
-      params: { name: "answer", arguments: { id: "q1", pick: "A" } },
+      params: { name: "rep", arguments: {} },
     });
-    expect(flips()).toBe(quiet + 2);
-    expect(await names(6)).toEqual(["rep", "answer", "me", "settings"]);
+
+    expect(argumentsOf(door.seen[1]).pending).toBe("q1");
+    const reply = out.find((m) => (m as { id?: unknown }).id === 2) as {
+      result: { content: Array<{ text: string }> };
+    };
+    expect(reply.result.content[0]?.text).toBe(NEXT);
+    expect(store.listReps().find((r) => r.id === "q1")?.answeredAt).toBeDefined();
+    expect(store.pendingRep()?.id).toBe("q2");
+  });
+
+  it("a rep pending in another project is not named, and the call asks for a fresh one", async () => {
+    const door = openDoor(() => ({ kind: "question", id: "q2", topicSlug: "react", text: BLOCK }));
+    const { send } = await bridgeWith(door);
+    const store = await import("../src/store.js");
+    await send({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} });
+    store.observeRep(
+      { kind: "question", id: "q1", topicSlug: "react" },
+      BLOCK,
+      Date.now() - 60_000,
+      "/somewhere/else",
+    );
+
+    await send({
+      jsonrpc: "2.0",
+      id: 2,
+      method: "tools/call",
+      params: { name: "rep", arguments: {} },
+    });
+
+    expect(argumentsOf(door.seen[1]).pending).toBeUndefined();
+    expect(store.pendingRep(Date.now(), "/somewhere/else")?.id, "still open over there").toBe("q1");
   });
 
   it("hides rep when the door is off, muted or spent, and never for the ordinary gap", async () => {

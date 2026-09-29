@@ -1,16 +1,9 @@
 import { spawn } from "node:child_process";
 import type { Dirent } from "node:fs";
-import {
-  closeSync,
-  existsSync,
-  openSync,
-  readdirSync,
-  readFileSync,
-  readSync,
-  statSync,
-} from "node:fs";
-import { basename, dirname, extname, join, relative } from "node:path";
+import { closeSync, openSync, readdirSync, readFileSync, readSync, statSync } from "node:fs";
+import { join, relative } from "node:path";
 
+import { loadClassifier, touchedFor } from "./classify.js";
 import * as clock from "./clock.js";
 import {
   INFER_BUDGET_MS,
@@ -24,12 +17,13 @@ import {
   MAX_FILES_READ,
   MAX_IMPORTS_PER_FILE,
   MAX_MANIFEST_DEPS,
+  MAX_NEW_FILE_BYTES,
   MAX_PACKAGES_SENT,
-  MAX_ROOT_HOPS,
   SCAN_SKIP,
 } from "./constants.js";
-import { applyGrammar, EMPTY_GRAMMAR, knownExtensions, knownPackages } from "./touch.js";
-import type { LocalHints, TouchGrammar } from "./types.js";
+import { findRepoRoot } from "./project.js";
+import { EMPTY_GRAMMAR, extensionOf, knownExtensions, knownPackages } from "./touch.js";
+import type { ChangedFile, LocalHints, Pushed, TouchGrammar, TreeSnapshot } from "./types.js";
 import { record } from "./wire.js";
 
 function runGit(cwd: string, args: string[], budgetMs: number): Promise<string> {
@@ -74,9 +68,9 @@ function openRead(path: string): { fd: number } & Disposable {
   return { fd, [Symbol.dispose]: () => closeSync(fd) };
 }
 
-function readHead(path: string): string {
+function readHead(path: string, maxBytes = MAX_BYTES_PER_FILE): string {
   try {
-    const size = Math.min(statSync(path).size, MAX_BYTES_PER_FILE);
+    const size = Math.min(statSync(path).size, maxBytes);
     using file = openRead(path);
     const buffer = Buffer.alloc(size);
     const read = readSync(file.fd, buffer, 0, size, 0);
@@ -164,32 +158,45 @@ function isSafeRepoPath(entry: string): boolean {
   return !/[\u0000-\u001f]/.test(entry);
 }
 
-function findRepoRoot(cwd: string): string | null {
-  let dir = cwd;
-  for (let hops = 0; hops < MAX_ROOT_HOPS; hops++) {
-    if (existsSync(join(dir, ".git"))) return dir;
-    const parent = dirname(dir);
-    if (parent === dir) break;
-    dir = parent;
-  }
-  return null;
-}
-
-function extensionOf(path: string): string {
-  const base = basename(path).toLowerCase();
-  if (base === "dockerfile") return "dockerfile";
-  return extname(base).replace(/^\./, "");
-}
-
-export function addedLines(diff: string): string[] {
-  const lines: string[] = [];
+export function addedByFile(diff: string): Map<string, string[]> {
+  const out = new Map<string, string[]>();
+  let current: string[] | undefined;
   for (const line of diff.split("\n")) {
-    if (line.startsWith("+") && !line.startsWith("+++")) lines.push(line.slice(1));
+    if (line.startsWith("+++ ")) {
+      const raw = line
+        .slice(4)
+        .replace(/\t$/, "")
+        .replace(/^"(.*)"$/, "$1");
+      if (raw === "/dev/null") {
+        current = undefined;
+        continue;
+      }
+      const path = raw.replace(/^b\//, "");
+      current = out.get(path) ?? [];
+      out.set(path, current);
+      continue;
+    }
+    if (current !== undefined && line.startsWith("+")) current.push(line.slice(1));
   }
-  return lines;
+  return out;
 }
 
-export type Session = { hints: LocalHints; mark: string | null };
+export type Session = {
+  hints: LocalHints;
+  mark: string | null;
+  snapshot: TreeSnapshot;
+  unchanged: boolean;
+  files: readonly ChangedFile[];
+};
+
+function stampOf(root: string, path: string): string {
+  try {
+    const stat = statSync(join(root, path));
+    return `${String(stat.mtimeMs)}:${String(stat.size)}`;
+  } catch {
+    return "gone";
+  }
+}
 
 const NOTHING: LocalHints = { packages: [], extensions: [], touched: [] };
 
@@ -201,55 +208,85 @@ function safePaths(raw: string, prefixChars: number): string[] {
     .slice(0, MAX_CHANGED);
 }
 
+type Change = { path: string; status: ChangedFile["status"] };
+
+function statusChanges(raw: string): Change[] {
+  return raw
+    .split("\0")
+    .filter((entry) => entry.length > 3)
+    .map((entry): Change => {
+      const code = entry.slice(0, 2);
+      const status =
+        code === "??" || code.includes("A") ? "added" : code.includes("D") ? "deleted" : "modified";
+      return { path: entry.slice(3).trim(), status };
+    })
+    .filter((change) => isSafeRepoPath(change.path))
+    .slice(0, MAX_CHANGED);
+}
+
 function hintsOf(
   root: string,
   cwd: string,
-  changed: readonly string[],
+  changes: readonly Change[],
   diff: string,
   deadline: clock.Deadline,
   grammar: TouchGrammar | null,
-): LocalHints {
+  prose: readonly string[],
+): { hints: LocalHints; files: ChangedFile[] } {
   const extensions = new Set<string>();
   const packages = new Set<string>();
-  for (const file of changed) {
-    const ext = extensionOf(file);
+  for (const { path } of changes) {
+    const ext = extensionOf(path);
     if (ext) extensions.add(ext);
-    const dir = file.split("/")[0];
-    if (dir && dir !== file) extensions.add(dir.toLowerCase());
+    const dir = path.split("/")[0];
+    if (dir && dir !== path) extensions.add(dir.toLowerCase());
   }
 
-  const byRecency = changed
-    .map((file) => {
+  const added = addedByFile(diff);
+  const byRecency = changes
+    .filter((change) => change.status !== "deleted")
+    .map((change) => {
       try {
-        return { file, mtime: statSync(join(root, file)).mtimeMs };
+        return { change, mtime: statSync(join(root, change.path)).mtimeMs };
       } catch {
         return null;
       }
     })
-    .filter((entry): entry is { file: string; mtime: number } => entry !== null)
-    .toSorted((a, b) => b.mtime - a.mtime)
-    .slice(0, MAX_FILES_READ);
-  const heads: string[] = [];
-  for (const { file } of byRecency) {
-    if (deadline.remaining() <= 0) break;
-    const head = readHead(join(root, file));
-    heads.push(head);
-    for (const spec of importSpecifiers(head)) packages.add(spec);
+    .filter((entry): entry is { change: Change; mtime: number } => entry !== null)
+    .toSorted((a, b) => b.mtime - a.mtime);
+  const files: ChangedFile[] = [];
+  for (const [index, { change }] of byRecency.entries()) {
+    const isNew = change.status === "added";
+    const text =
+      index < MAX_FILES_READ && deadline.remaining() > 0
+        ? readHead(join(root, change.path), isNew ? MAX_NEW_FILE_BYTES : MAX_BYTES_PER_FILE)
+        : "";
+    for (const spec of importSpecifiers(text)) packages.add(spec);
+    const lines = text.split("\n");
+    files.push({
+      path: change.path,
+      status: change.status,
+      ...(isNew ? { added: lines } : { added: added.get(change.path) ?? [], head: lines }),
+    });
+  }
+  for (const change of changes) {
+    if (change.status === "deleted") files.push({ ...change, added: [] });
   }
 
   for (const dep of manifestDeps(cwd)) packages.add(dep);
   if (root !== cwd) for (const dep of manifestDeps(root)) packages.add(dep);
 
   const touched =
-    grammar === null
-      ? []
-      : applyGrammar(grammar, { paths: changed, addedLines: addedLines(diff), heads, deadline });
+    grammar === null ? [] : touchedFor(grammar, loadClassifier(), files, deadline, prose);
 
   const vocabulary = grammar ?? EMPTY_GRAMMAR;
   return {
-    packages: knownPackages(vocabulary, [...packages]).slice(0, MAX_PACKAGES_SENT),
-    extensions: knownExtensions(vocabulary, [...extensions]).slice(0, MAX_EXTENSIONS_SENT),
-    touched,
+    hints: {
+      packages: knownPackages(vocabulary, [...packages]).slice(0, MAX_PACKAGES_SENT),
+      extensions: knownExtensions(vocabulary, [...extensions]).slice(0, MAX_EXTENSIONS_SENT),
+      touched,
+    },
+    files,
   };
 }
 
@@ -257,6 +294,8 @@ export async function inferSession(
   cwd: string,
   budgetMs = INFER_BUDGET_MS,
   grammar: TouchGrammar | null = null,
+  prose: readonly string[] = [],
+  previous?: Pushed,
 ): Promise<Session> {
   const deadline = clock.deadline(budgetMs);
 
@@ -272,21 +311,49 @@ export async function inferSession(
           Math.min(deadline.remaining(), budgetMs * 0.4),
         );
   const scan = inRepo === null ? scanRecent(cwd, deadline) : null;
-  const changed = scan === null ? safePaths(changedRaw, 3) : scan.files.filter(isSafeRepoPath);
+  const listed: Change[] =
+    scan === null
+      ? statusChanges(changedRaw)
+      : scan.files.filter(isSafeRepoPath).map((path) => ({ path, status: "added" }));
 
+  const snapshot: Record<string, string> = {};
+  for (const change of listed) snapshot[change.path] = stampOf(root, change.path);
+  const since = previous?.snapshot;
+  const changes =
+    since === undefined
+      ? listed
+      : listed.filter((change) => since[change.path] !== snapshot[change.path]);
+
+  const tracked = changes.filter((c) => c.status === "modified").map((c) => c.path);
   const diff =
-    grammar && changed.length > 0 && deadline.remaining() > 20
+    grammar && tracked.length > 0 && deadline.remaining() > 20
       ? await runGit(
           root,
-          ["diff", "--no-color", "--unified=0", "--no-ext-diff", "HEAD", "--", ...changed],
+          [
+            "-c",
+            "core.quotepath=off",
+            "diff",
+            "--no-color",
+            "--unified=0",
+            "--no-ext-diff",
+            "HEAD",
+            "--",
+            ...tracked,
+          ],
           Math.min(deadline.remaining(), budgetMs * 0.3),
         )
       : "";
 
+  const mark =
+    inRepo === null ? (scan?.mark ?? null) : fingerprint(`${changedRaw}|${String(diff.length)}`);
+  if (mark !== null && mark === previous?.mark) {
+    return { hints: NOTHING, mark, snapshot, unchanged: true, files: [] };
+  }
   return {
-    hints: hintsOf(root, cwd, changed, diff, deadline, grammar),
-    mark:
-      inRepo === null ? (scan?.mark ?? null) : fingerprint(`${changedRaw}|${String(diff.length)}`),
+    ...hintsOf(root, cwd, changes, diff, deadline, grammar, prose),
+    mark,
+    snapshot,
+    unchanged: false,
   };
 }
 
@@ -299,7 +366,9 @@ export async function inferCommit(
   grammar: TouchGrammar | null = null,
 ): Promise<Session> {
   const root = findRepoRoot(cwd);
-  if (root === null || !COMMIT_HASH.test(hash)) return { hints: NOTHING, mark: null };
+  if (root === null || !COMMIT_HASH.test(hash)) {
+    return { hints: NOTHING, mark: null, snapshot: {}, unchanged: false, files: [] };
+  }
   const deadline = clock.deadline(budgetMs);
   const changedRaw = await runGit(
     root,
@@ -312,6 +381,8 @@ export async function inferCommit(
       ? await runGit(
           root,
           [
+            "-c",
+            "core.quotepath=off",
             "show",
             "--no-color",
             "--unified=0",
@@ -324,9 +395,12 @@ export async function inferCommit(
           Math.min(deadline.remaining(), budgetMs * 0.3),
         )
       : "";
+  const changes = changed.map((path): Change => ({ path, status: "modified" }));
   return {
-    hints: hintsOf(root, cwd, changed, diff, deadline, grammar),
+    ...hintsOf(root, cwd, changes, diff, deadline, grammar, []),
     mark: fingerprint(`${hash}|${changedRaw}`),
+    snapshot: {},
+    unchanged: false,
   };
 }
 

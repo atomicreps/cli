@@ -1,6 +1,7 @@
 import "./node-guard.js";
 import { launchChannel, readConfig, setChannel, signedInOn, writeConfig } from "./config.js";
 import { ENV } from "./constants.js";
+import { describeDecision, recentDecisions } from "./decisions.js";
 import { refreshGrammar, runHook } from "./hook.js";
 import { install, needsSetup } from "./install.js";
 import { serve } from "./mcp.js";
@@ -19,9 +20,10 @@ const HELP = `atomicreps - one short rep about the thing you just built, inside 
   npx atomicreps connect --pin   pin the launch args to this installed version, for a command you can commit
   npx atomicreps mcp        the MCP server the editor launches
   npx atomicreps doctor     token, server ping, when the next rep may come, allowlist
+  npx atomicreps why        the last ten times a question could have appeared, and why it did or did not
   npx atomicreps logout     forget the token on this machine
   npx atomicreps logout --purge   also forget your reps and status, and offer to undo connect
-  npx atomicreps hook       the Claude Code plugin's Stop and UserPromptSubmit hook (stdin JSON in, JSON out)
+  npx atomicreps hook       the Claude Code Stop and UserPromptSubmit hook that connect installs (stdin JSON in, JSON out)
   npx atomicreps statusline one line for a Claude Code status line
 
 Add --alpha to any command to use staging instead of production.
@@ -108,6 +110,15 @@ async function main(raw: string[]): Promise<number> {
       return 0;
     case "doctor":
       return await doctor();
+    case "why": {
+      const recent = recentDecisions(10);
+      process.stdout.write(
+        recent.length === 0
+          ? "No decisions recorded yet. They are written when a turn ends or your agent calls rep.\n"
+          : `${recent.map(describeDecision).join("\n")}\n`,
+      );
+      return 0;
+    }
     case "logout": {
       const purge = argv.includes("--purge");
       writeConfig({});

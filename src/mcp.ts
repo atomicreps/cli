@@ -10,6 +10,7 @@ import {
   DEFAULT_API,
   DEGRADED_BACKOFF_MS,
   DOCTOR_HINT,
+  AGENT_TOPICS_SENT,
   HARD_QUIET,
   INFER_BUDGET_MS,
   LEGACY_VERSIONS,
@@ -26,13 +27,20 @@ import {
   UNAUTHORIZED_BACKOFF_MS,
   WATCHED_RESOURCE,
 } from "./constants.js";
+import { noteDecision, noteShown } from "./decisions.js";
 import { FALLBACK_INSTRUCTIONS, FALLBACK_TOOLS } from "./format.js";
-import { inferHints } from "./infer.js";
+import { inferSession, type Session } from "./infer.js";
+import { projectOf } from "./project.js";
 import {
   cachedGrammar,
+  noteReprinted,
+  noteResolvedElsewhere,
   observeRep,
   observeVerdict,
   pendingRep,
+  pushedIn,
+  remindable,
+  snapshotOnly,
   writeStatusCache,
 } from "./store.js";
 import { EMPTY_GRAMMAR, knownHandle, resolvePhrases, resolveTopic } from "./touch.js";
@@ -47,6 +55,8 @@ import {
   type JsonRpcMessage,
   type ReportableFailure,
   type RepLane,
+  type StoredRep,
+  stringList,
   type TouchGrammar,
 } from "./types.js";
 import { SERVER_VERSION } from "./version.js";
@@ -134,7 +144,6 @@ type Era =
   | ({ readonly kind: "modern" } & Opened);
 
 function repHidden(now: clock.EpochMs): boolean {
-  if (pendingRep(now) !== undefined) return true;
   const { nextEligibleAt, quietReason } = readConfig();
   if (typeof nextEligibleAt !== "number" || nextEligibleAt <= now) return false;
   return quietReason !== undefined && HARD_QUIET.has(quietReason);
@@ -155,6 +164,28 @@ function noteElicitationCapability(clientCapabilities: Readonly<Record<string, u
   if (isRecord(clientCapabilities.elicitation)) updateConfig({ elicitationCapable: true });
 }
 
+function slotsSpentOf(data: Record<string, unknown>): number {
+  return data.slotsSpent === 2 ? 2 : 1;
+}
+
+function reshown(rep: StoredRep, open: Record<string, unknown>): Record<string, unknown> {
+  return {
+    content: [{ type: "text", text: rep.text }],
+    structuredContent: {
+      kind: "question",
+      text: rep.text,
+      id: rep.id,
+      topicSlug: rep.topicSlug,
+      topicSource: rep.topicSource ?? "touched",
+      gated: null,
+      nextEligibleAt: typeof open.nextEligibleAt === "number" ? open.nextEligibleAt : 0,
+      lane: rep.lane ?? "pushed",
+      handle: rep.handle ?? rep.topicSlug,
+      offer: [],
+    },
+  };
+}
+
 export class Bridge {
   private era: Era = { kind: "opening" };
   private readonly inflight = new Map<string, AbortController>();
@@ -166,6 +197,8 @@ export class Bridge {
 
   private readonly write: (message: JsonRpcMessage) => void;
   private readonly cwd: string;
+  private lastSession: Session | undefined;
+  private readonly project: string;
   private readonly fetchImpl: typeof fetch;
 
   constructor(
@@ -175,6 +208,7 @@ export class Bridge {
   ) {
     this.write = write;
     this.cwd = cwd;
+    this.project = projectOf(cwd);
     this.fetchImpl = fetchImpl;
   }
 
@@ -462,10 +496,24 @@ export class Bridge {
   ): Promise<Record<string, unknown>> {
     const args: Record<string, unknown> = {};
     if (!asked) {
-      const hints = await inferHints(this.cwd, INFER_BUDGET_MS, grammar);
-      const phrases = Array.isArray(raw.touched) ? resolvePhrases(grammar, raw.touched) : [];
-      args.hints = { ...hints, touched: [...phrases, ...hints.touched] };
+      const said = stringList(raw.touched);
+      const session = await inferSession(
+        this.cwd,
+        INFER_BUDGET_MS,
+        grammar,
+        said,
+        snapshotOnly(pushedIn(this.project)),
+      );
+      this.lastSession = session;
+      const named = resolvePhrases(grammar, said).filter((entry) =>
+        knownHandle(grammar, entry.key),
+      );
+      args.hints = { ...session.hints, touched: [...named, ...session.hints.touched] };
     }
+    const topics = stringList(raw.topics)
+      .map((value) => knownHandle(grammar, value))
+      .filter((handle): handle is string => handle !== undefined && !handle.includes("."));
+    if (topics.length > 0) args.topics = [...new Set(topics)].slice(0, AGENT_TOPICS_SENT);
     const topic = typeof raw.topic === "string" ? resolveTopic(grammar, raw.topic) : undefined;
     if (topic !== undefined) args.topic = topic;
     if (ask !== undefined) args.ask = ask;
@@ -484,6 +532,7 @@ export class Bridge {
 
     let args: Record<string, unknown>;
     let asked: boolean;
+    let pending: StoredRep | undefined;
     if (name === "rep") {
       const grammar = cachedGrammar() ?? EMPTY_GRAMMAR;
       const ask = typeof raw.ask === "string" ? knownHandle(grammar, raw.ask) : undefined;
@@ -497,8 +546,13 @@ export class Bridge {
             structuredContent: { kind: "quiet", reason: "gap", nextEligibleAt: quietUntil },
           });
         }
+        if (raw.kind !== "insight") pending = remindable(pendingRep(now, this.project));
       }
       args = await this.repArguments(raw, grammar, ask, lane, asked);
+      if (pending) {
+        args.pending = pending.id;
+        args.reminders = pending.shown ?? 0;
+      }
     } else {
       args = { ...raw };
       asked = false;
@@ -537,6 +591,18 @@ export class Bridge {
           nextEligibleAt,
         },
       });
+    }
+    if (pending && isRecord(door.body.result)) {
+      const data = door.body.result.structuredContent;
+      if (isRecord(data) && data.kind === "open") {
+        noteReprinted(pending.id, now, slotsSpentOf(data));
+        this.announceResource(WATCHED_RESOURCE);
+        return this.reply(id, reshown(pending, data));
+      }
+      if (!(isRecord(data) && data.kind === "insight")) noteResolvedElsewhere(pending.id, now);
+      this.observe(name, args, door.body.result, now);
+      if (isRecord(data) && data.kind === "insight") noteReprinted(pending.id, now);
+      return this.forward(id, door.body);
     }
     if (isRecord(door.body.result)) this.observe(name, args, door.body.result, now);
     this.forward(id, door.body);
@@ -588,6 +654,30 @@ export class Bridge {
     return promise;
   }
 
+  private noteRepOutcome(
+    args: Record<string, unknown>,
+    data: Record<string, unknown>,
+    now: number,
+  ): void {
+    const session = this.lastSession;
+    this.lastSession = undefined;
+    if (args.ask !== undefined) return;
+    if (data.kind === "question") {
+      const handle = typeof data.handle === "string" ? data.handle : undefined;
+      noteShown({ via: "tool", project: this.project, session, handle, now });
+      return;
+    }
+    if (data.kind === "quiet") {
+      noteDecision({
+        at: now,
+        via: "tool",
+        outcome: "server-quiet",
+        project: this.project,
+        top: session?.hints.touched ?? [],
+      });
+    }
+  }
+
   private observe(
     name: string,
     args: Record<string, unknown>,
@@ -599,7 +689,10 @@ export class Bridge {
       ? result.content.find((c) => isRecord(c) && c.type === "text")
       : undefined;
     const text = isRecord(textBlock) && typeof textBlock.text === "string" ? textBlock.text : "";
-    if (name === "rep") observeRep(data, text, now);
+    if (name === "rep") {
+      observeRep(data, text, now, this.project);
+      this.noteRepOutcome(args, data, now);
+    }
     if (name === "answer")
       observeVerdict(typeof args.id === "string" ? args.id : undefined, data, text, now);
     if (name === "me" && data.show === "summary") writeStatusCache(data, now);

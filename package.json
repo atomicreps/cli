@@ -1,6 +1,6 @@
 {
   "name": "atomicreps",
-  "version": "0.0.19",
+  "version": "0.0.20",
   "description": "One short retrieval question about the thing you just built, inside Claude Code, GitHub Copilot, Cursor, Codex or any MCP client. Loop included.",
   "license": "MIT",
   "type": "module",
@@ -8,7 +8,8 @@
     "atomicreps": "dist/cli.js"
   },
   "files": [
-    "dist"
+    "dist",
+    "classifier"
   ],
   "engines": {
     "node": ">=24"

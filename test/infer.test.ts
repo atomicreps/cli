@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { MAX_SCAN_FILES } from "../src/constants.js";
-import { inferCommit, inferHints, inferSession } from "../src/infer.js";
+import { addedByFile, inferCommit, inferHints, inferSession } from "../src/infer.js";
 import type { TouchGrammar } from "../src/types.js";
 
 const KNOWS: TouchGrammar = {
@@ -261,5 +261,107 @@ describe("a commit rather than the working tree", () => {
     const session = await inferCommit(dir, "--output=/tmp/x", 2000, KNOWS);
     expect(session.mark).toBeNull();
     expect(session.hints.touched).toEqual([]);
+  });
+});
+
+describe("what the change added", () => {
+  const INDEXING = {
+    version: "t",
+    paths: [],
+    words: [
+      { words: "create index", key: "sql.indexing", weight: 3 },
+      { words: "page_size", key: "rest_apis.pagination", weight: 3 },
+    ],
+    vocabulary: { handles: [], packages: [], extensions: [] },
+  };
+
+  it("counts every line of a new file, which git diff HEAD never lists", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "atomicreps-new-"));
+    const { execSync } = await import("node:child_process");
+    execSync("git init -q && git config user.email t@t && git config user.name t", { cwd: dir });
+    writeFileSync(join(dir, "app.py"), "PAGE_SIZE = 25\n");
+    execSync("git add -A && git commit -qm base", { cwd: dir });
+    writeFileSync(join(dir, "app.py"), "PAGE_SIZE = 25\nx = 1\n");
+    mkdirSync(join(dir, "db"));
+    writeFileSync(
+      join(dir, "db", "003_indexes.sql"),
+      "CREATE INDEX a ON t (x);\nCREATE INDEX b ON t (y);\n",
+    );
+    const hints = await inferHints(dir, 2000, INDEXING);
+    expect(hints.touched[0]).toEqual({ key: "sql.indexing", weight: 10 });
+  });
+
+  it("splits a unified diff into the added lines of each file, quoted paths included", () => {
+    const diff = [
+      "diff --git a/a.ts b/a.ts",
+      "--- a/a.ts",
+      "+++ b/a.ts",
+      "@@ -1 +1 @@",
+      "-old",
+      "+new",
+      'diff --git "a/with space.py" "b/with space.py"',
+      '--- "a/with space.py"',
+      '+++ "b/with space.py"',
+      "+one",
+      "+two",
+      "diff --git a/gone.ts b/gone.ts",
+      "--- a/gone.ts",
+      "+++ /dev/null",
+      "-bye",
+    ].join("\n");
+    expect(Object.fromEntries(addedByFile(diff))).toEqual({
+      "a.ts": ["new"],
+      "with space.py": ["one", "two"],
+    });
+  });
+});
+
+describe("the work since the last rep", () => {
+  it("scores only the files that moved after the snapshot the last rep was served on", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "atomicreps-since-"));
+    const { execSync } = await import("node:child_process");
+    execSync("git init -q && git config user.email t@t && git config user.name t", { cwd: dir });
+    writeFileSync(join(dir, "README"), "x\n");
+    execSync("git add -A && git commit -qm base", { cwd: dir });
+    const grammar = {
+      version: "t",
+      paths: [],
+      words: [
+        { words: "create index", key: "sql.indexing", weight: 3 },
+        { words: "usestate", key: "react.hooks_core", weight: 3 },
+      ],
+      vocabulary: { handles: [], packages: [], extensions: [] },
+    };
+    writeFileSync(join(dir, "Search.tsx"), "const [q, setQ] = useState('');\n");
+    const first = await inferSession(dir, 2000, grammar);
+    expect(first.hints.touched.map((t) => t.key)).toContain("react.hooks_core");
+
+    writeFileSync(join(dir, "003.sql"), "CREATE INDEX a ON t (x);\n");
+    const next = await inferSession(dir, 2000, grammar, [], { snapshot: first.snapshot });
+    expect(next.hints.touched.map((t) => t.key)).toEqual(["sql.indexing"]);
+  });
+});
+
+describe("a turn that changed nothing", () => {
+  it("is reported unchanged, and nothing is scored", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "atomicreps-unchanged-"));
+    const { execSync } = await import("node:child_process");
+    execSync("git init -q && git config user.email t@t && git config user.name t", { cwd: dir });
+    writeFileSync(join(dir, "README"), "x\n");
+    execSync("git add -A && git commit -qm base", { cwd: dir });
+    writeFileSync(join(dir, "003.sql"), "CREATE INDEX a ON t (x);\n");
+    const grammar = {
+      version: "t",
+      paths: [],
+      words: [{ words: "create index", key: "sql.indexing", weight: 3 }],
+      vocabulary: { handles: [], packages: [], extensions: [] },
+    };
+    const first = await inferSession(dir, 2000, grammar);
+    const again = await inferSession(dir, 2000, grammar, [], {
+      mark: first.mark ?? "",
+      snapshot: first.snapshot,
+    });
+    expect(again.unchanged).toBe(true);
+    expect(again.hints.touched).toEqual([]);
   });
 });

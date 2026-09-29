@@ -6,6 +6,7 @@ import { dirname, join } from "node:path";
 import { isAlpha } from "./config.js";
 import { PROBE_MS, TOOL_NAMES } from "./constants.js";
 import { ensureDir, readJsonFile, writeFileAtomic } from "./files.js";
+import { claudePluginNames, hookCommand, hooksWired, wireHooks } from "./hooks-wire.js";
 import { statusLineWired, wireStatusLine } from "./statusline-wire.js";
 import { isRecord, stringList } from "./types.js";
 import { SERVER_VERSION } from "./version.js";
@@ -103,6 +104,7 @@ export function allowlistMissing(): string[] {
 
 export type AgentId =
   | "claude"
+  | "hooks"
   | "allowlist"
   | "statusline"
   | "vscode"
@@ -209,6 +211,18 @@ export function agentTargets(pin = false): readonly AgentTarget[] {
       found: () => claudeAvailable(),
       apply: (found) =>
         runCli(found, "claude", claudeAddArgs(pin), "added at user scope", claudeAddCommand(pin)),
+    },
+    {
+      id: "hooks",
+      label: "\u2026and a question at the end of each turn",
+      hint: tilde(claudeSettingsPath()),
+      detail:
+        claudePluginNames(claudeSettingsPath()).length > 0
+          ? "The Atomic Reps plugin is installed and already runs these hooks, so this row writes nothing. Two copies would print every question twice."
+          : `Adds a Stop hook and a UserPromptSubmit hook that run ${hookCommand()}. When Claude finishes a turn that changed files, a question about that work prints in your terminal, and the letter you type next is graded. Hooks you already have stay.`,
+      found: () => claudeAvailable(),
+      done: () => hooksWired(claudeSettingsPath()),
+      apply: () => wireHooks(claudeSettingsPath()),
     },
     {
       id: "allowlist",

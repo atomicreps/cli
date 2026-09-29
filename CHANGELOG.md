@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.0.20
+
+- The question is chosen by a classifier trained on the 141,000 questions in the Atomic Reps catalog, instead of a hand-written keyword list. It reads the lines each changed file added (all of a new file), the start of each changed file, and the agent's summary of the turn, and it works out how likely each topic is to be what the work was about. A word only counts for a language's topics inside a file of that language, so `await` in a Python file no longer points at C#. The package now ships the counts in `classifier/counts.json`; the words in it are stored as numbers, not text.
+- Only the files that changed since the last question count toward the next one. After you finish one task and get a question, the next task's question is about the next task, even when nothing was committed in between.
+- Your agent can name up to three catalog topics the work was about, from a fixed list. A named topic makes its questions more likely; it does not rule out the others.
+- `npx atomicreps connect` can now install the Claude Code hook that prints a question in your terminal when Claude finishes a turn and grades the letter you type next. Before this, the hook came only with the Claude Code plugin, which nobody outside the team could install. The new row, "…and a question at the end of each turn", is ticked when Claude Code is found. It adds two entries to your Claude Code settings.json, one for Stop and one for UserPromptSubmit, and keeps every hook you already have. If the Atomic Reps plugin is installed, the row writes nothing, because two copies would print every question twice. `doctor` says whether the hooks are installed, and `logout --purge` offers to remove exactly those two entries.
+- The `rep` tool no longer disappears from your agent's tool list while a question is waiting for your answer. Before this, one unanswered question in one terminal took the tool away in every other terminal on the machine, and an agent that looked for it gave up. If your agent calls `rep` while a question is still open, the open question is shown again.
+- An unanswered question now belongs to the repository it was asked in. A terminal open on another repository no longer shows it again, and a letter typed there no longer answers it. The check for "nothing changed since the last question" also compares each repository only with itself.
+- Your agent is now told to call `rep` as the last step of any turn in which it changed files, even when the work is not committed or tested yet. Before this, agents often skipped the call because they did not consider uncommitted work finished.
+
 ## 0.0.19
 
 - The smaller Loop, the one beside the text on every screen except the home screen, is redrawn to match the home screen Loop. His eyes were two pixels wide with a large white highlight, so he seemed to glance sideways and look cross. He now has round dark eyes, pink cheeks and a smile, and his hand has fingers when he covers his face.

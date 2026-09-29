@@ -43,7 +43,9 @@ function typed(text: string): HookInput {
   return { hook_event_name: "UserPromptSubmit", prompt: text, cwd: "/repo" };
 }
 
-function stopped(last = "Done: the form validates on blur."): HookInput {
+const DONE = "Done: the form validates on blur.";
+
+function stopped(last = DONE): HookInput {
   return { hook_event_name: "Stop", last_assistant_message: last, cwd: "/repo" };
 }
 
@@ -84,7 +86,7 @@ const CASES: ReadonlyArray<
     "a Stop never grades, even one whose last message is a letter",
     stopped("B"),
     given({ pending: served() }),
-    { kind: "remind", rep: served(), cwd: "/repo" },
+    { kind: "remind", rep: served(), cwd: "/repo", prose: ["B"] },
   ],
   ["a Stop with no token is nothing", stopped(), given({ hasToken: false }), { kind: "ignore" }],
   [
@@ -205,7 +207,7 @@ const CASES: ReadonlyArray<
     "a digit under an open offer takes that entry",
     typed("2"),
     given({ offer: OFFER }),
-    { kind: "take", handle: "docker.buildx" },
+    { kind: "take", handle: "docker.buildx", cwd: "/repo" },
   ],
   [
     "a digit while a rep is pending is not an offer digit",
@@ -223,37 +225,37 @@ const CASES: ReadonlyArray<
     "a running clock is nothing",
     stopped(),
     given({ nextEligibleAt: NOW + 60_000 }),
-    { kind: "ignore" },
+    { kind: "quiet", reason: "gap", cwd: "/repo" },
   ],
   [
     "a clock that has just run out is a push",
     stopped(),
     given({ nextEligibleAt: NOW - 1 }),
-    { kind: "push", cwd: "/repo" },
+    { kind: "push", cwd: "/repo", prose: [DONE] },
   ],
   [
     "an unanswered rep is said again rather than silencing the turn",
     stopped(),
     given({ pending: served() }),
-    { kind: "remind", rep: served(), cwd: "/repo" },
+    { kind: "remind", rep: served(), cwd: "/repo", prose: [DONE] },
   ],
   [
     "a rep is still reminded halfway through its slots",
     stopped(),
     given({ pending: reprinted(REMIND_LIMIT - 1) }),
-    { kind: "remind", rep: reprinted(REMIND_LIMIT - 1), cwd: "/repo" },
+    { kind: "remind", rep: reprinted(REMIND_LIMIT - 1), cwd: "/repo", prose: [DONE] },
   ],
   [
     "a rep that has spent every slot gives way to a fresh one, which the next letter grades",
     stopped(),
     given({ pending: reprinted(REMIND_LIMIT) }),
-    { kind: "push", cwd: "/repo" },
+    { kind: "push", cwd: "/repo", prose: [DONE] },
   ],
   [
     "a reminder waits on the quiet clock like everything else",
     stopped(),
     given({ pending: served(), nextEligibleAt: NOW + 60_000 }),
-    { kind: "ignore" },
+    { kind: "quiet", reason: "gap", cwd: "/repo" },
   ],
   [
     "a reminder is not a grade: a Stop with no token still gets nothing",
@@ -265,13 +267,17 @@ const CASES: ReadonlyArray<
     "a turn that ended on a question is nothing: the user is about to answer it",
     stopped("Shall I apply the same to the other routes?"),
     given(),
-    { kind: "ignore" },
+    { kind: "quiet", reason: "ended-on-question", cwd: "/repo" },
   ],
   [
     "a question mid-message does not hold the rep back",
     stopped("Why? Because the index was missing. Fixed and tested."),
     given(),
-    { kind: "push", cwd: "/repo" },
+    {
+      kind: "push",
+      cwd: "/repo",
+      prose: ["Why? Because the index was missing. Fixed and tested."],
+    },
   ],
   [
     "a subagent or a headless run is never pushed a rep",
@@ -283,13 +289,13 @@ const CASES: ReadonlyArray<
     "background work still running holds the push back: the turn is the inside of the work",
     stopped(),
     given({ busy: true }),
-    { kind: "ignore" },
+    { kind: "quiet", reason: "background-work", cwd: "/repo" },
   ],
   [
     "background work still running holds a reminder back too",
     stopped(),
     given({ busy: true, pending: served() }),
-    { kind: "ignore" },
+    { kind: "quiet", reason: "background-work", cwd: "/repo" },
   ],
   [
     "a held verdict prints at the next Stop, before the clock, the question and the background work",
@@ -307,7 +313,7 @@ const CASES: ReadonlyArray<
     "a finished turn with nothing in the way is a push, in the editor's directory",
     stopped(),
     given(),
-    { kind: "push", cwd: "/repo" },
+    { kind: "push", cwd: "/repo", prose: [DONE] },
   ],
   [
     "an ordinary prompt with nothing in the way is nothing, never a push",

@@ -3,7 +3,7 @@ import { join } from "node:path";
 
 import * as api from "./api.js";
 import * as clock from "./clock.js";
-import { configPath, noteQuiet, updateConfig } from "./config.js";
+import { configPath, noteQuiet, readConfig, updateConfig } from "./config.js";
 import {
   CATALOG_DEADLINE_MS,
   FILE_MODE,
@@ -11,7 +11,9 @@ import {
   GRAMMAR_TTL_MS,
   OFFER_TTL_MS,
   PENDING_TTL_MS,
+  PUSH_MARKS_KEPT,
   REMIND_GAP_MS,
+  REMIND_LIMIT,
   REPS_KEPT,
   STATUS_TTL_MS,
   TOPICS_TTL_MS,
@@ -23,6 +25,7 @@ import {
   type ClientState,
   type DomainEntry,
   type OfferEntry,
+  type Pushed,
   type StoredRep,
   type TopicEntry,
   type TouchGrammar,
@@ -171,7 +174,12 @@ export function offerOf(data: Record<string, unknown>): OfferEntry[] {
   );
 }
 
-export function observeRep(data: Record<string, unknown>, text: string, now: number): void {
+export function observeRep(
+  data: Record<string, unknown>,
+  text: string,
+  now: number,
+  project?: string,
+): void {
   if (data.kind === "verdict") {
     observeVerdict(undefined, data, text, now);
     return;
@@ -188,8 +196,10 @@ export function observeRep(data: Record<string, unknown>, text: string, now: num
       topicSlug: typeof data.topicSlug === "string" ? data.topicSlug : "",
       ...(typeof data.handle === "string" ? { handle: data.handle } : {}),
       ...(data.lane === "asked" || data.lane === "pushed" ? { lane: data.lane } : {}),
+      ...(typeof data.topicSource === "string" ? { topicSource: data.topicSource } : {}),
       text,
       servedAt: now,
+      ...(project === undefined ? {} : { project }),
     });
   }
 }
@@ -226,8 +236,13 @@ export function noteResolvedElsewhere(id: string, now: number): void {
   writeJson(FILES.reps, { reps });
 }
 
-export function pendingRep(now = clock.now()): StoredRep | undefined {
-  const last = listReps().at(-1);
+export function pendingRep(now = clock.now(), project?: string): StoredRep | undefined {
+  const reps = listReps();
+  const newest = reps.at(-1);
+  const last =
+    project === undefined
+      ? newest
+      : reps.findLast((r) => (r.project === undefined ? r === newest : r.project === project));
   if (!last || last.answeredAt !== undefined) return undefined;
   return now - last.servedAt <= PENDING_TTL_MS ? last : undefined;
 }
@@ -282,4 +297,23 @@ export function cachedMuteKeys(now = clock.now()): string[] {
 export function cachedGrammarVersion(now = clock.now()): string | undefined {
   const version = readStatusCache(now)?.grammarVersion;
   return typeof version === "string" ? version : undefined;
+}
+
+export function remindable(rep: StoredRep | undefined): StoredRep | undefined {
+  return rep !== undefined && (rep.shown ?? 0) < REMIND_LIMIT ? rep : undefined;
+}
+
+export function snapshotOnly(pushed: Pushed | undefined): Pushed | undefined {
+  return pushed === undefined ? undefined : { snapshot: pushed.snapshot };
+}
+
+export function pushedIn(project: string): Pushed | undefined {
+  return readConfig().pushed?.[project];
+}
+
+export function notePushed(project: string, pushed: Pushed): void {
+  const all = { ...readConfig().pushed };
+  delete all[project];
+  all[project] = pushed;
+  updateConfig({ pushed: Object.fromEntries(Object.entries(all).slice(-PUSH_MARKS_KEPT)) });
 }

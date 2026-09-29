@@ -14,6 +14,7 @@ import {
 } from "./connect.js";
 import { PROBE_MS, TOOL_NAMES } from "./constants.js";
 import { readJsonFile, writeFileAtomic } from "./files.js";
+import { hooksOurs, unwireHooks } from "./hooks-wire.js";
 import { statusLineOurs, unwireStatusLine } from "./statusline-wire.js";
 import { isRecord, stringList } from "./types.js";
 
@@ -117,6 +118,16 @@ export function leftovers(probe: CliProbe = cliHas): Leftover[] {
           runCli(claudeAvailable(), "claude", line.split(" ").slice(1), "removed", line),
       });
     }
+  }
+  if (hooksOurs(claudeSettingsPath())) {
+    found.push({
+      id: "hooks",
+      label: "…its end-of-turn hooks",
+      hint: tilde(claudeSettingsPath()),
+      detail:
+        "Removes the Stop and UserPromptSubmit entries that run npx -y atomicreps hook. Every other hook stays.",
+      remove: () => unwireHooks(claudeSettingsPath()),
+    });
   }
   for (const { name, tag } of SERVERS) {
     const rules = allowedRules(name);
