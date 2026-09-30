@@ -1,17 +1,15 @@
-import { appendFileSync, chmodSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { appendFileSync, readFileSync } from "node:fs";
 
 import { loadClassifier, strongestFile } from "./classify.js";
 import type { EpochMs } from "./clock.js";
-import { configPath } from "./config.js";
+import { decisionsLogPath, ensureConfigDir } from "./config.js";
 import { FILE_MODE } from "./constants.js";
-import { ensureDir } from "./files.js";
+import { writeFileAtomic } from "./files.js";
 import type { Session } from "./infer.js";
 import { notePushed } from "./store.js";
 import type { TouchedEntry } from "./types.js";
 
 const KEPT = 200;
-const FILE = "decisions.log";
 
 export type Outcome =
   | "shown"
@@ -25,35 +23,56 @@ export type Outcome =
 
 export type Decision = {
   readonly at: EpochMs;
-  readonly via: "hook" | "tool";
+  readonly via: "hook" | "tool" | "editor";
   readonly outcome: Outcome;
   readonly project?: string;
   readonly top?: readonly TouchedEntry[];
+  readonly named?: readonly NamedPhrase[];
+  readonly unmatched?: number;
   readonly served?: string;
   readonly because?: string;
 };
 
-function logPath(): string {
-  return join(dirname(configPath()), FILE);
-}
+export type NamedPhrase = { readonly match: string; readonly key: string; readonly weight: number };
+
+export type Sent = {
+  readonly touched: readonly TouchedEntry[];
+  readonly named: readonly NamedPhrase[];
+  readonly unmatched: number;
+};
 
 export function noteDecision(decision: Decision): void {
   try {
-    const path = logPath();
-    ensureDir(dirname(path));
+    ensureConfigDir();
+    const path = decisionsLogPath();
     const entry =
       decision.top === undefined ? decision : { ...decision, top: decision.top.slice(0, 3) };
     appendFileSync(path, `${JSON.stringify(entry)}\n`, { mode: FILE_MODE });
-    chmodSync(path, FILE_MODE);
     const lines = readFileSync(path, "utf8").split("\n").filter(Boolean);
-    if (lines.length > KEPT * 2) writeFileSync(path, `${lines.slice(-KEPT).join("\n")}\n`);
+    if (lines.length > KEPT * 2) {
+      writeFileAtomic(path, `${lines.slice(-KEPT).join("\n")}\n`, FILE_MODE);
+    }
   } catch {
   }
 }
 
+export function sentFields(
+  sent: Sent | undefined,
+  session: Session | undefined,
+): Pick<Decision, "top" | "named" | "unmatched"> {
+  if (sent !== undefined) {
+    return {
+      top: sent.touched.toSorted((a, b) => b.weight - a.weight),
+      ...(sent.named.length === 0 ? {} : { named: sent.named }),
+      ...(sent.unmatched === 0 ? {} : { unmatched: sent.unmatched }),
+    };
+  }
+  return session === undefined ? {} : { top: session.hints.touched };
+}
+
 export function recentDecisions(count = 10): Decision[] {
   try {
-    return readFileSync(logPath(), "utf8")
+    return readFileSync(decisionsLogPath(), "utf8")
       .split("\n")
       .filter(Boolean)
       .slice(-count)
@@ -75,25 +94,26 @@ export function noteShown(shown: {
   readonly session: Session | undefined;
   readonly handle: string | undefined;
   readonly now: EpochMs;
+  readonly sent?: Sent;
 }): string | null {
-  const { via, project, session, handle, now } = shown;
+  const { via, project, session, handle, now, sent } = shown;
   if (session !== undefined) {
     notePushed(project, {
       ...(session.mark === null ? {} : { mark: session.mark }),
       snapshot: session.snapshot,
     });
   }
-  const classifier = session === undefined || handle === undefined ? null : loadClassifier();
-  const because =
-    classifier === null || session === undefined || handle === undefined
-      ? null
-      : strongestFile(classifier, session.files, handle);
+  let because: string | null = null;
+  if (session !== undefined && handle !== undefined) {
+    const classifier = loadClassifier();
+    if (classifier !== null) because = strongestFile(classifier, session.files, handle);
+  }
   noteDecision({
     at: now,
     via,
     outcome: "shown",
     project,
-    ...(session === undefined ? {} : { top: session.hints.touched }),
+    ...sentFields(sent, session),
     ...(handle === undefined ? {} : { served: handle }),
     ...(because === null ? {} : { because }),
   });
@@ -120,5 +140,14 @@ export function describeDecision(decision: Decision): string {
     decision.top === undefined || decision.top.length === 0
       ? ""
       : `\n    candidates: ${decision.top.map((e) => `${e.key} ${String(e.weight)}`).join(", ")}`;
-  return `${when} ${decision.via}${where}: ${SAYS[decision.outcome]}${what}${because}${top}`;
+  const named =
+    decision.named === undefined && decision.unmatched === undefined
+      ? ""
+      : `\n    agent named: ${[
+          ...(decision.named ?? []).map((n) => `${n.match} → ${n.key} ${String(n.weight)}`),
+          ...(decision.unmatched === undefined
+            ? []
+            : [`${String(decision.unmatched)} matched no catalog word`]),
+        ].join(", ")}`;
+  return `${when} ${decision.via}${where}: ${SAYS[decision.outcome]}${what}${because}${top}${named}`;
 }

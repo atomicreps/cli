@@ -49,7 +49,7 @@ import {
   TUI_INFER_BUDGET_MS,
 } from "./constants.js";
 import { SHARE_LABEL, shareUrlOf } from "./format.js";
-import { claudePluginNames, hookCommand, hooksOurs, hooksWired } from "./hooks-wire.js";
+import { claudePluginNames, hooksOurs, hooksWired } from "./hooks-wire.js";
 import { inferHints } from "./infer.js";
 import { CADENCES, draftOf, gateScreen, install, levelsScreen, scopeScreen } from "./install.js";
 import { loopRows, type LoopOptions } from "./loop.js";
@@ -116,6 +116,7 @@ function humanize(key: string): string {
 }
 
 export async function login(interactive = isInteractive()): Promise<boolean> {
+  const replacing = readConfig().token ? await accountName() : undefined;
   const started = await api.startDeviceLogin(clientLabel(), hostLabel());
   if (!started.ok) {
     plain([`Could not reach ${siteOrigin()} (${started.reason}). Try again in a moment.`]);
@@ -131,6 +132,12 @@ export async function login(interactive = isInteractive()): Promise<boolean> {
     `      ${paint(` ${userCode} `, "bold", "ink")}${copied ? paint("   (copied)", "faint") : ""}`,
     "",
     paint("The code never travels in a link. Only approve a code you see here.", "faint"),
+    ...(replacing === undefined
+      ? []
+      : [
+          "",
+          `This machine is signed in${replacing === null ? "" : ` as ${replacing}`} (${configPath()}). Approving a code replaces that sign-in.`,
+        ]),
   ];
   if (interactive) out(withLoop("thinking", copy));
   else plain(copy);
@@ -213,6 +220,12 @@ function parseSummary(value: unknown): Summary {
     ...(strict === undefined ? {} : { strict }),
     ...(levels === undefined ? {} : { levels }),
   };
+}
+
+export async function accountName(): Promise<string | null> {
+  const summary = await fetchSummary();
+  const name = summary?.name.trim();
+  return name ? name : null;
 }
 
 async function fetchSummary(): Promise<Summary | null> {
@@ -654,7 +667,7 @@ function claudeHookLine(): string {
   const plugins = claudePluginNames(path);
   const inSettings = hooksOurs(path);
   if (plugins.length > 0 && inSettings) {
-    return `claude hooks: in settings.json AND in the ${plugins.join(", ")} plugin, so every question prints twice. Uninstall the plugin, or delete the "${hookCommand()}" entries under hooks in ${path}.`;
+    return `claude hooks: in settings.json AND in the ${plugins.join(", ")} plugin, so every question prints twice. Uninstall the plugin, or delete the atomicreps hook entries under hooks in ${path}.`;
   }
   if (plugins.length > 0) return `claude hooks: from the ${plugins.join(", ")} plugin`;
   if (hooksWired(path)) return "claude hooks: wired";
@@ -686,6 +699,8 @@ export async function doctor(): Promise<number> {
     const ping = await api.me("summary", LOGIN_DEADLINE_MS);
     if (ping.ok) {
       lines.push(`server: ok in ${ping.ms}ms`);
+      const name = str(ping.value.data?.name);
+      if (name) lines.push(`account: ${name}`);
       const latest = ping.value.client?.release?.version;
       if (typeof latest === "string" && isBehind(SERVER_VERSION, latest)) {
         lines.push(`latest: ${latest} (npx picks it up on the next launch; restart your editor)`);

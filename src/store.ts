@@ -3,7 +3,7 @@ import { join } from "node:path";
 
 import * as api from "./api.js";
 import * as clock from "./clock.js";
-import { configPath, noteQuiet, readConfig, updateConfig } from "./config.js";
+import { configPath, noteQuiet, readConfig, updateConfig, writeConfig } from "./config.js";
 import {
   CATALOG_DEADLINE_MS,
   FILE_MODE,
@@ -178,7 +178,7 @@ export function observeRep(
   data: Record<string, unknown>,
   text: string,
   now: number,
-  project?: string,
+  project: string,
 ): void {
   if (data.kind === "verdict") {
     observeVerdict(undefined, data, text, now);
@@ -199,7 +199,7 @@ export function observeRep(
       ...(typeof data.topicSource === "string" ? { topicSource: data.topicSource } : {}),
       text,
       servedAt: now,
-      ...(project === undefined ? {} : { project }),
+      project,
     });
   }
 }
@@ -312,8 +312,12 @@ export function pushedIn(project: string): Pushed | undefined {
 }
 
 export function notePushed(project: string, pushed: Pushed): void {
-  const all = { ...readConfig().pushed };
+  const config = readConfig();
+  const all = { ...config.pushed };
   delete all[project];
   all[project] = pushed;
-  updateConfig({ pushed: Object.fromEntries(Object.entries(all).slice(-PUSH_MARKS_KEPT)) });
+  writeConfig({
+    ...config,
+    pushed: Object.fromEntries(Object.entries(all).slice(-PUSH_MARKS_KEPT)),
+  });
 }

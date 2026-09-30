@@ -1,12 +1,18 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
 import { isAlpha } from "./config.js";
 import { PROBE_MS, TOOL_NAMES } from "./constants.js";
-import { ensureDir, readJsonFile, writeFileAtomic } from "./files.js";
-import { claudePluginNames, hookCommand, hooksWired, wireHooks } from "./hooks-wire.js";
+import {
+  ensureDir,
+  readJsonFile,
+  readSettingsFile,
+  writeFileAtomic,
+  writeSettingsFile,
+} from "./files.js";
+import { claudePluginNames, hooksWired, wireHooks } from "./hooks-wire.js";
 import { statusLineWired, wireStatusLine } from "./statusline-wire.js";
 import { isRecord, stringList } from "./types.js";
 import { SERVER_VERSION } from "./version.js";
@@ -68,31 +74,19 @@ export function claudeAvailable(): boolean {
   return (claudeProbe ??= cliAnswers("claude"));
 }
 
-function unusableSettings(path: string): string | null {
-  try {
-    const parsed: unknown = JSON.parse(readFileSync(path, "utf8"));
-    return Array.isArray(parsed) ? "settings.json is not an object" : null;
-  } catch {
-    return "could not parse the file; add the allowlist by hand";
-  }
-}
-
 export function allowInClaude(): { added: string[]; path: string; skipped?: string } {
   const path = claudeSettingsPath();
-  let settings: Record<string, unknown> = {};
-  if (existsSync(path)) {
-    const parsed = readJsonFile<Record<string, unknown>>(path);
-    if (parsed === null) {
-      const skipped = unusableSettings(path);
-      if (skipped !== null) return { added: [], path, skipped };
-    } else settings = parsed;
-  }
+  const read = readSettingsFile(path, "the allowlist");
+  if ("failed" in read) return { added: [], path, skipped: read.failed };
+  const { settings } = read;
   const permissions = isRecord(settings.permissions) ? settings.permissions : {};
   const allow = stringList(permissions.allow);
   const added = toolAllowlist().filter((tool) => !allow.includes(tool));
   if (added.length === 0) return { added, path };
-  const next = { ...settings, permissions: { ...permissions, allow: [...allow, ...added] } };
-  writeFileAtomic(path, `${JSON.stringify(next, null, 2)}\n`);
+  writeSettingsFile(path, {
+    ...settings,
+    permissions: { ...permissions, allow: [...allow, ...added] },
+  });
   return { added, path };
 }
 
@@ -219,7 +213,7 @@ export function agentTargets(pin = false): readonly AgentTarget[] {
       detail:
         claudePluginNames(claudeSettingsPath()).length > 0
           ? "The Atomic Reps plugin is installed and already runs these hooks, so this row writes nothing. Two copies would print every question twice."
-          : `Adds a Stop hook and a UserPromptSubmit hook that run ${hookCommand()}. When Claude finishes a turn that changed files, a question about that work prints in your terminal, and the letter you type next is graded. Hooks you already have stay.`,
+          : `Adds a Stop hook and a UserPromptSubmit hook that run atomicreps hook from this install, with npx as the fallback. When Claude finishes a turn that changed files, a question about that work prints in your terminal, and the letter you type next is graded. Hooks you already have stay.`,
       found: () => claudeAvailable(),
       done: () => hooksWired(claudeSettingsPath()),
       apply: () => wireHooks(claudeSettingsPath()),

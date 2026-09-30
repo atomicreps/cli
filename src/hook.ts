@@ -16,7 +16,7 @@ import {
   MAX_SHORT_PROMPT_CHARS,
 } from "./constants.js";
 import { noteDecision, noteShown, type Outcome } from "./decisions.js";
-import { isRepBlock } from "./format.js";
+import { isRepBlock, partsOfBlock } from "./format.js";
 import { inferSession, type Session } from "./infer.js";
 import { projectOf } from "./project.js";
 import { backgroundTaskIds, stillWorking, unattended } from "./session.js";
@@ -46,7 +46,6 @@ import {
   type HookOutput,
   type OfferEntry,
   type Pick,
-  type Pushed,
   type StoredRep,
   type ToolReply,
 } from "./types.js";
@@ -139,6 +138,15 @@ export function digitOf(prompt: string): number | null {
   const match = DIGIT.exec(prompt);
   return match?.[1] === undefined ? null : Number(match[1]);
 }
+
+export function showsRep(text: string | undefined, rep: StoredRep): boolean {
+  if (typeof text !== "string") return false;
+  if (text.includes(`/r/${rep.id}`)) return true;
+  const { stem } = partsOfBlock(rep.text);
+  return stem !== undefined && stem.length >= MIN_STEM_MATCH && text.includes(stem);
+}
+
+const MIN_STEM_MATCH = 24;
 
 export function endsOnQuestion(text: string | undefined): boolean {
   if (typeof text !== "string") return false;
@@ -272,7 +280,8 @@ function printServed(
 
 function servedHandle(result: ApiResult<ToolReply>): string | undefined {
   const data = result.ok ? (result.value.data ?? {}) : {};
-  if (typeof data.handle === "string") return data.handle;
+  const handle = str(data.handle);
+  if (handle !== undefined) return handle;
   return typeof data.topicSlug === "string" && data.topicSlug !== "" ? data.topicSlug : undefined;
 }
 
@@ -280,21 +289,19 @@ function becauseLine(path: string | null): string {
   return path === null ? "" : `\n${tint(`  Because you edited ${path}.`, "dim")}`;
 }
 
-async function readTurn(
-  cwd: string,
-  prose: readonly string[],
-  previous: Pushed | undefined,
-): Promise<Session> {
-  return await inferSession(cwd, INFER_BUDGET_MS, cachedGrammar(), prose, previous);
-}
-
 async function fetchRep(
   cwd: string,
+  project: string,
   prose: readonly string[],
   now: clock.EpochMs,
 ): Promise<HookOutput | null> {
-  const project = projectOf(cwd);
-  const session = await readTurn(cwd, prose, pushedIn(project));
+  const session = await inferSession(
+    cwd,
+    INFER_BUDGET_MS,
+    cachedGrammar(),
+    prose,
+    pushedIn(project),
+  );
   const { hints } = session;
   if (session.unchanged) {
     noteDecision({ at: now, via: "hook", outcome: "tree-unchanged", project });
@@ -312,11 +319,17 @@ async function fetchRep(
 async function remindRep(
   rep: StoredRep,
   cwd: string,
+  project: string,
   prose: readonly string[],
   now: clock.EpochMs,
 ): Promise<HookOutput | null> {
-  const project = projectOf(cwd);
-  const session = await readTurn(cwd, prose, snapshotOnly(pushedIn(project)));
+  const session = await inferSession(
+    cwd,
+    INFER_BUDGET_MS,
+    cachedGrammar(),
+    prose,
+    snapshotOnly(pushedIn(project)),
+  );
   const { hints } = session;
   const slot = rep.shown ?? 0;
   const result = await api.rep(
@@ -347,6 +360,7 @@ async function remindRep(
 export type HookState = {
   hasToken: boolean;
   unattended: boolean;
+  project: string;
   busy: boolean;
   held: HeldBlock | undefined;
   nextEligibleAt: clock.EpochMs | undefined;
@@ -357,28 +371,33 @@ export type HookState = {
 
 export type HookAction =
   | { kind: "ignore" }
-  | { kind: "quiet"; reason: Outcome; cwd: string }
+  | { kind: "quiet"; reason: Outcome; project: string }
   | { kind: "grade"; id: string; pick: Pick; sure?: boolean; withMessage: boolean }
-  | { kind: "take"; handle: string; cwd: string }
-  | { kind: "remind"; rep: StoredRep; cwd: string; prose: readonly string[] }
+  | { kind: "take"; handle: string; project: string }
+  | { kind: "remind"; rep: StoredRep; cwd: string; project: string; prose: readonly string[] }
   | { kind: "show"; held: HeldBlock }
-  | { kind: "push"; cwd: string; prose: readonly string[] };
+  | { kind: "arm"; id: string }
+  | { kind: "push"; cwd: string; project: string; prose: readonly string[] };
 
 function decideStop(input: HookInput, state: HookState, now: clock.EpochMs): HookAction {
   if (!state.hasToken) return { kind: "ignore" };
   if (state.held) return { kind: "show", held: state.held };
-  const cwd = input.cwd ?? process.cwd();
+  if (state.pending && showsRep(input.last_assistant_message, state.pending)) {
+    return { kind: "arm", id: state.pending.id };
+  }
+  const { project } = state;
   if (endsOnQuestion(input.last_assistant_message)) {
-    return { kind: "quiet", reason: "ended-on-question", cwd };
+    return { kind: "quiet", reason: "ended-on-question", project };
   }
   if (state.nextEligibleAt !== undefined && clock.locallyQuiet(state.nextEligibleAt, now)) {
-    return { kind: "quiet", reason: "gap", cwd };
+    return { kind: "quiet", reason: "gap", project };
   }
-  if (state.busy) return { kind: "quiet", reason: "background-work", cwd };
+  if (state.busy) return { kind: "quiet", reason: "background-work", project };
+  const cwd = input.cwd ?? process.cwd();
   const prose = input.last_assistant_message === undefined ? [] : [input.last_assistant_message];
   const due = remindable(state.pending);
-  if (due) return { kind: "remind", rep: due, cwd, prose };
-  return { kind: "push", cwd, prose };
+  if (due) return { kind: "remind", rep: due, cwd, project, prose };
+  return { kind: "push", cwd, project, prose };
 }
 
 export function decide(input: HookInput, state: HookState, now: clock.EpochMs): HookAction {
@@ -397,7 +416,7 @@ export function decide(input: HookInput, state: HookState, now: clock.EpochMs): 
 
   const digit = digitOf(prompt);
   const entry = digit === null || state.pending || state.held ? undefined : state.offer[digit - 1];
-  if (entry) return { kind: "take", handle: entry.handle, cwd: input.cwd ?? process.cwd() };
+  if (entry) return { kind: "take", handle: entry.handle, project: state.project };
   return { kind: "ignore" };
 }
 
@@ -414,13 +433,15 @@ export function readState(now: clock.EpochMs, input: HookInput = {}): HookState 
   const busy = !isUnattended && backgroundBusy(input.background_tasks, now);
   const config = readConfig();
   const held = config.held;
+  const project = projectOf(input.cwd ?? process.cwd());
   return {
     hasToken: Boolean(config.token),
     unattended: isUnattended,
+    project,
     busy,
     held: held !== undefined && now - held.at <= HELD_TTL_MS ? held : undefined,
     nextEligibleAt: config.nextEligibleAt,
-    pending: pendingRep(now, projectOf(input.cwd ?? process.cwd())),
+    pending: pendingRep(now, project),
     armed: config.armedRep?.id,
     offer: openOffer(now),
   };
@@ -431,27 +452,25 @@ export async function perform(action: HookAction, now: clock.EpochMs): Promise<H
     case "ignore":
       return null;
     case "quiet":
-      noteDecision({
-        at: now,
-        via: "hook",
-        outcome: action.reason,
-        project: projectOf(action.cwd),
-      });
+      noteDecision({ at: now, via: "hook", outcome: action.reason, project: action.project });
       return null;
     case "grade":
       return await gradeLetter(action, now);
     case "show":
       return showHeld(action.held);
+    case "arm":
+      updateConfig({ armedRep: { id: action.id } });
+      return null;
     case "remind":
-      return await remindRep(action.rep, action.cwd, action.prose, now);
+      return await remindRep(action.rep, action.cwd, action.project, action.prose, now);
     case "take":
       return holdAsked(
         await api.rep({ ask: action.handle }, HOOK_DEADLINE_MS),
         now,
-        projectOf(action.cwd),
+        action.project,
       );
     case "push":
-      return await fetchRep(action.cwd, action.prose, now);
+      return await fetchRep(action.cwd, action.project, action.prose, now);
   }
 }
 
@@ -459,12 +478,14 @@ export async function runHook(raw: string, now = clock.now()): Promise<HookOutpu
   const input = parseInput(raw);
   const state = readState(now, input);
   if (state.unattended) return null;
-  disarm();
+  const prompted = (input.hook_event_name ?? "UserPromptSubmit") === "UserPromptSubmit";
+  if (state.armed !== undefined || prompted) {
+    updateConfig({
+      ...(state.armed === undefined ? {} : { armedRep: undefined }),
+      ...(prompted ? { lastPromptAt: now } : {}),
+    });
+  }
   return await perform(decide(input, state, now), now);
-}
-
-function disarm(): void {
-  if (readConfig().armedRep !== undefined) updateConfig({ armedRep: undefined });
 }
 
 export async function refreshGrammar(raw: string, now = clock.now()): Promise<void> {

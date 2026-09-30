@@ -309,7 +309,7 @@ describe("the stdio bridge", () => {
     }
     const args = argumentsOf(door.seen[1]);
     const hints = args.hints as { touched: Array<{ key: string; weight: number }> };
-    expect(hints.touched).toContainEqual({ key: "react.effects", weight: 3 });
+    expect(hints.touched.map((e) => e.key)).toContain("react.effects");
     expect(Object.keys(args).toSorted()).toEqual(["hints"]);
   });
 
@@ -392,6 +392,7 @@ describe("the stdio bridge", () => {
       { kind: "question", id: "q1", topicSlug: "react" },
       BLOCK,
       Date.now() - 10_000,
+      configHome,
     );
     await send({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} });
     await send({
@@ -588,7 +589,12 @@ describe("the stdio bridge", () => {
     const { out, send } = await bridgeWith(door);
     const store = await import("../src/store.js");
     await send({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} });
-    store.observeRep({ kind: "question", id: "q1", topicSlug: "react" }, BLOCK, Date.now());
+    store.observeRep(
+      { kind: "question", id: "q1", topicSlug: "react" },
+      BLOCK,
+      Date.now(),
+      configHome,
+    );
     expect(store.pendingRep()?.id).toBe("q1");
 
     await send({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} });
@@ -658,6 +664,7 @@ describe("the stdio bridge", () => {
       { kind: "question", id: "q1", topicSlug: "react" },
       BLOCK,
       Date.now() - 60_000,
+      configHome,
     );
 
     await send({

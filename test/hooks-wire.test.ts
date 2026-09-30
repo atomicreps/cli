@@ -21,8 +21,14 @@ afterEach(() => {
   delete process.env.CLAUDE_CONFIG_DIR;
 });
 
-const OURS = "npx -y atomicreps hook";
-const OUR_GROUP = { hooks: [{ type: "command", command: OURS, timeout: 5 }] };
+const OLD_OURS = "npx -y atomicreps hook";
+
+async function ourGroup(): Promise<{
+  hooks: Array<{ type: string; command: string; timeout: number }>;
+}> {
+  const { hookCommand } = await import("../src/hooks-wire.js");
+  return { hooks: [{ type: "command", command: hookCommand(), timeout: 5 }] };
+}
 const THEIRS = {
   hooks: [{ type: "command", command: "afplay /System/Library/Sounds/Glass.aiff" }],
 };
@@ -50,6 +56,7 @@ describe("wireHooks", () => {
     const { wireHooks, hooksWired } = await import("../src/hooks-wire.js");
     expect(hooksWired(SETTINGS)).toBe(false);
     expect(wireHooks(SETTINGS).state).toBe("done");
+    const OUR_GROUP = await ourGroup();
     expect(settings()).toEqual({
       theme: "dark",
       permissions: { allow: ["Bash"] },
@@ -62,6 +69,7 @@ describe("wireHooks", () => {
     seed({ hooks: { Stop: [THEIRS], PostToolUse: [LINTER] } });
     const { wireHooks } = await import("../src/hooks-wire.js");
     wireHooks(SETTINGS);
+    const OUR_GROUP = await ourGroup();
     expect(settings().hooks).toEqual({
       Stop: [THEIRS, OUR_GROUP],
       PostToolUse: [LINTER],
@@ -70,16 +78,42 @@ describe("wireHooks", () => {
   });
 
   it("adds nothing the second time, or where the same command is already there", async () => {
-    const { wireHooks } = await import("../src/hooks-wire.js");
+    const { wireHooks, hookCommand } = await import("../src/hooks-wire.js");
+    const OUR_GROUP = await ourGroup();
     wireHooks(SETTINGS);
     expect(wireHooks(SETTINGS).says).toBe("already in place");
     expect(settings().hooks).toEqual({ Stop: [OUR_GROUP], UserPromptSubmit: [OUR_GROUP] });
 
-    seed({ hooks: { Stop: [{ hooks: [THEIRS.hooks[0], { type: "command", command: OURS }] }] } });
+    seed({
+      hooks: { Stop: [{ hooks: [THEIRS.hooks[0], { type: "command", command: hookCommand() }] }] },
+    });
     wireHooks(SETTINGS);
     const hooks = settings().hooks as Record<string, unknown[]>;
     expect(hooks.Stop).toHaveLength(1);
     expect(hooks.UserPromptSubmit).toEqual([OUR_GROUP]);
+  });
+
+  it("replaces the bare npx hook an older connect wrote, rather than adding a second", async () => {
+    seed({
+      hooks: { Stop: [THEIRS, { hooks: [{ type: "command", command: OLD_OURS, timeout: 5 }] }] },
+    });
+    const { wireHooks, hooksWired } = await import("../src/hooks-wire.js");
+    expect(hooksWired(SETTINGS), "the bare form is offered again, so connect replaces it").toBe(
+      false,
+    );
+    wireHooks(SETTINGS);
+    const OUR_GROUP = await ourGroup();
+    expect(settings().hooks).toEqual({ Stop: [THEIRS, OUR_GROUP], UserPromptSubmit: [OUR_GROUP] });
+  });
+
+  it("counts a hook pinned to another install's path as ours, on both events", async () => {
+    const other =
+      '"/old/bin/node" "/old/atomicreps/dist/cli.js" hook 2>/dev/null || npx -y atomicreps hook';
+    const group = { hooks: [{ type: "command", command: other, timeout: 5 }] };
+    seed({ hooks: { Stop: [group], UserPromptSubmit: [group] } });
+    const { hooksWired, hooksOurs } = await import("../src/hooks-wire.js");
+    expect(hooksWired(SETTINGS)).toBe(true);
+    expect(hooksOurs(SETTINGS)).toBe(true);
   });
 
   it("writes nothing when the plugin is installed, and says why", async () => {
@@ -104,7 +138,8 @@ describe("wireHooks", () => {
     const { wireHooks, hooksWired } = await import("../src/hooks-wire.js");
     wireHooks(SETTINGS);
     const hooks = settings().hooks as Record<string, Array<{ hooks: Array<{ command: string }> }>>;
-    expect(hooks.Stop?.[0]?.hooks[0]?.command).toBe("npx -y atomicreps hook --alpha");
+    expect(hooks.Stop?.[0]?.hooks[0]?.command).toContain(" hook --alpha 2>/dev/null");
+    expect(hooks.Stop?.[0]?.hooks[0]?.command).toMatch(/\|\| npx -y atomicreps hook --alpha$/);
     expect(hooksWired(SETTINGS)).toBe(true);
     config.setChannel("default");
   });
@@ -112,6 +147,7 @@ describe("wireHooks", () => {
 
 describe("unwireHooks", () => {
   it("takes out only our command, and every other hook stays where it was", async () => {
+    const OUR_GROUP = await ourGroup();
     seed({
       theme: "dark",
       hooks: {
@@ -134,11 +170,11 @@ describe("unwireHooks", () => {
     expect(hooksOurs(SETTINGS)).toBe(false);
   });
 
-  it("drops the hooks key when ours was all it held, on either channel", async () => {
+  it("drops the hooks key when ours was all it held, in any form and on either channel", async () => {
     seed({
       theme: "dark",
       hooks: {
-        Stop: [OUR_GROUP],
+        Stop: [{ hooks: [{ type: "command", command: OLD_OURS, timeout: 5 }] }],
         UserPromptSubmit: [
           { hooks: [{ type: "command", command: "npx -y atomicreps hook --alpha", timeout: 5 }] },
         ],

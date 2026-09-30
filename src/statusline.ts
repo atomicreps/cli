@@ -78,7 +78,8 @@ export function statusLine(now = clock.now()): string {
   if (pending) {
     const { stem, options } = partsOfBlock(pending.text);
     const rows = [cut(`${MARK} ${stem ?? pending.handle ?? pending.topicSlug}`, columns)];
-    rows.push(...optionRows(options, columns));
+    const scrolled = config.lastPromptAt !== undefined && config.lastPromptAt > pending.servedAt;
+    if (scrolled) rows.push(...optionRows(options, columns));
     return rows.join("\n");
   }
   const day = dayParts(now, config.nextEligibleAt);

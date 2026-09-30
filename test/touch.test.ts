@@ -6,10 +6,12 @@ import {
   knownExtensions,
   knownHandle,
   knownPackages,
+  matchPhrases,
   parseGrammar,
   resolvePhrases,
   resolveTopic,
   scoreFiles,
+  weighNamed,
 } from "../src/touch.js";
 import type { TouchGrammar } from "../src/types.js";
 
@@ -75,6 +77,37 @@ describe("the agent's own phrases", () => {
   it("with no vocabulary and no rules there is nothing to resolve against", () => {
     const bare = parseGrammar({ version: "old", paths: [], words: [] });
     expect(resolvePhrases(bare as TouchGrammar, ["react.effects"])).toEqual([]);
+  });
+
+  it("reports which catalog words each phrase matched, and counts the phrases that matched nothing", () => {
+    expect(
+      matchPhrases(grammarOf(), ["useEffect cleanup", "def add(x, xs=[]):", "FastAPI"]),
+    ).toEqual({ matches: [{ match: "useeffect cleanup", key: "react.effects" }], unmatched: 2 });
+  });
+});
+
+describe("the agent's phrases beside the diff", () => {
+  const diff = [
+    { key: "sql.basic_queries", weight: 10 },
+    { key: "api_design.pagination_patterns", weight: 6 },
+  ];
+
+  it("raises a phrase to the diff's strongest weight when the diff shows the same technology", () => {
+    expect(weighNamed([{ key: "sql.optimization", weight: PHRASE_WEIGHT }], diff)).toEqual([
+      { key: "sql.optimization", weight: 10 },
+    ]);
+  });
+
+  it("leaves a phrase at the phrase weight when the diff shows nothing of its technology", () => {
+    expect(weighNamed([{ key: "graphql.caching_batching", weight: PHRASE_WEIGHT }], diff)).toEqual([
+      { key: "graphql.caching_batching", weight: PHRASE_WEIGHT },
+    ]);
+  });
+
+  it("with no diff at all, every phrase keeps the phrase weight", () => {
+    expect(weighNamed([{ key: "sql.optimization", weight: PHRASE_WEIGHT }], [])).toEqual([
+      { key: "sql.optimization", weight: PHRASE_WEIGHT },
+    ]);
   });
 });
 

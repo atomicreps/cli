@@ -65,9 +65,18 @@ async function load() {
 }
 
 describe("an open rep", () => {
-  it("is the question itself: the stem, then the options cut to their first clause", async () => {
+  it("is only its stem while the block is still on screen, before the next prompt", async () => {
     seedReps([pending()]);
     const { statusline } = await load();
+    expect(statusline.statusLine(NOW).split("\n")).toEqual([
+      "⚛ What does toHaveBeenLastCalledWith check?",
+    ]);
+  });
+
+  it("is the question itself once a prompt has gone by: the stem, then the options cut to their first clause", async () => {
+    seedReps([pending()]);
+    const { statusline, config } = await load();
+    config.updateConfig({ lastPromptAt: NOW - 1_000 });
     const rows = statusline.statusLine(NOW).split("\n");
     expect(rows[0]).toBe("⚛ What does toHaveBeenLastCalledWith check?");
     expect(rows[1], "the word all four open with is dropped").toContain(
@@ -81,7 +90,8 @@ describe("an open rep", () => {
   it("never lets a row past the width, and the code in the block is not the stem", async () => {
     seedReps([pending()]);
     process.env.COLUMNS = "60";
-    const { statusline } = await load();
+    const { statusline, config } = await load();
+    config.updateConfig({ lastPromptAt: NOW - 1_000 });
     const rows = statusline.statusLine(NOW).split("\n");
     for (const row of rows) expect(row.length, row).toBeLessThanOrEqual(60);
     expect(rows[1]).toMatch(/^ {2}A .*… · B .*…$/);

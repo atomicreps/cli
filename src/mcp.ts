@@ -1,6 +1,7 @@
 import { createInterface } from "node:readline";
 
 import { cool, spend } from "./budget.js";
+import { loadClassifier, touchedFor } from "./classify.js";
 import * as clock from "./clock.js";
 import { apiOrigin, isAlpha, noteFailure, noteQuiet, readConfig, updateConfig } from "./config.js";
 import {
@@ -27,7 +28,7 @@ import {
   UNAUTHORIZED_BACKOFF_MS,
   WATCHED_RESOURCE,
 } from "./constants.js";
-import { noteDecision, noteShown } from "./decisions.js";
+import { noteDecision, noteShown, type Sent, sentFields } from "./decisions.js";
 import { FALLBACK_INSTRUCTIONS, FALLBACK_TOOLS } from "./format.js";
 import { inferSession, type Session } from "./infer.js";
 import { projectOf } from "./project.js";
@@ -43,7 +44,14 @@ import {
   snapshotOnly,
   writeStatusCache,
 } from "./store.js";
-import { EMPTY_GRAMMAR, knownHandle, resolvePhrases, resolveTopic } from "./touch.js";
+import {
+  EMPTY_GRAMMAR,
+  knownHandle,
+  matchPhrases,
+  resolvePhrases,
+  resolveTopic,
+  weighNamed,
+} from "./touch.js";
 import {
   isRecord,
   oneOf,
@@ -60,7 +68,7 @@ import {
   type TouchGrammar,
 } from "./types.js";
 import { SERVER_VERSION } from "./version.js";
-import { parseJsonRpcMessage } from "./wire.js";
+import { num, parseJsonRpcMessage, str } from "./wire.js";
 
 export { SERVER_VERSION };
 
@@ -164,9 +172,7 @@ function noteElicitationCapability(clientCapabilities: Readonly<Record<string, u
   if (isRecord(clientCapabilities.elicitation)) updateConfig({ elicitationCapable: true });
 }
 
-function slotsSpentOf(data: Record<string, unknown>): number {
-  return data.slotsSpent === 2 ? 2 : 1;
-}
+type TreeRead = { readonly session: Session; readonly sent: Sent };
 
 function reshown(rep: StoredRep, open: Record<string, unknown>): Record<string, unknown> {
   return {
@@ -178,7 +184,7 @@ function reshown(rep: StoredRep, open: Record<string, unknown>): Record<string, 
       topicSlug: rep.topicSlug,
       topicSource: rep.topicSource ?? "touched",
       gated: null,
-      nextEligibleAt: typeof open.nextEligibleAt === "number" ? open.nextEligibleAt : 0,
+      nextEligibleAt: num(open.nextEligibleAt) ?? 0,
       lane: rep.lane ?? "pushed",
       handle: rep.handle ?? rep.topicSlug,
       offer: [],
@@ -197,7 +203,6 @@ export class Bridge {
 
   private readonly write: (message: JsonRpcMessage) => void;
   private readonly cwd: string;
-  private lastSession: Session | undefined;
   private readonly project: string;
   private readonly fetchImpl: typeof fetch;
 
@@ -493,8 +498,9 @@ export class Bridge {
     ask: string | undefined,
     lane: RepLane | undefined,
     asked: boolean,
-  ): Promise<Record<string, unknown>> {
+  ): Promise<{ args: Record<string, unknown>; read: TreeRead | undefined }> {
     const args: Record<string, unknown> = {};
+    let read: TreeRead | undefined;
     if (!asked) {
       const said = stringList(raw.touched);
       const session = await inferSession(
@@ -504,11 +510,29 @@ export class Bridge {
         said,
         snapshotOnly(pushedIn(this.project)),
       );
-      this.lastSession = session;
-      const named = resolvePhrases(grammar, said).filter((entry) =>
-        knownHandle(grammar, entry.key),
+      const evidence = touchedFor(
+        grammar,
+        loadClassifier(),
+        session.files,
+        clock.deadline(INFER_BUDGET_MS),
       );
-      args.hints = { ...session.hints, touched: [...named, ...session.hints.touched] };
+      const named = weighNamed(
+        resolvePhrases(grammar, said).filter((entry) => knownHandle(grammar, entry.key)),
+        evidence,
+      );
+      const touched = [...named, ...session.hints.touched];
+      args.hints = { ...session.hints, touched };
+      const { matches, unmatched } = matchPhrases(grammar, said);
+      const sentAt = new Map(named.map((entry) => [entry.key, entry.weight]));
+      const kept = matches.filter((m) => sentAt.has(m.key));
+      read = {
+        session,
+        sent: {
+          touched,
+          named: kept.map((m) => ({ ...m, weight: sentAt.get(m.key) ?? 0 })),
+          unmatched: unmatched + matches.length - kept.length,
+        },
+      };
     }
     const topics = stringList(raw.topics)
       .map((value) => knownHandle(grammar, value))
@@ -522,7 +546,7 @@ export class Bridge {
     if (exclude !== undefined) args.exclude = exclude;
     const kind = oneOf(REP_KINDS, raw.kind);
     if (kind !== undefined) args.kind = kind;
-    return args;
+    return { args, read };
   }
 
   private async handleToolCall(id: JsonRpcId, params: Record<string, unknown>): Promise<void> {
@@ -533,6 +557,7 @@ export class Bridge {
     let args: Record<string, unknown>;
     let asked: boolean;
     let pending: StoredRep | undefined;
+    let read: TreeRead | undefined;
     if (name === "rep") {
       const grammar = cachedGrammar() ?? EMPTY_GRAMMAR;
       const ask = typeof raw.ask === "string" ? knownHandle(grammar, raw.ask) : undefined;
@@ -548,7 +573,7 @@ export class Bridge {
         }
         if (raw.kind !== "insight") pending = remindable(pendingRep(now, this.project));
       }
-      args = await this.repArguments(raw, grammar, ask, lane, asked);
+      ({ args, read } = await this.repArguments(raw, grammar, ask, lane, asked));
       if (pending) {
         args.pending = pending.id;
         args.reminders = pending.shown ?? 0;
@@ -595,16 +620,17 @@ export class Bridge {
     if (pending && isRecord(door.body.result)) {
       const data = door.body.result.structuredContent;
       if (isRecord(data) && data.kind === "open") {
-        noteReprinted(pending.id, now, slotsSpentOf(data));
+        noteReprinted(pending.id, now);
         this.announceResource(WATCHED_RESOURCE);
         return this.reply(id, reshown(pending, data));
       }
-      if (!(isRecord(data) && data.kind === "insight")) noteResolvedElsewhere(pending.id, now);
-      this.observe(name, args, door.body.result, now);
-      if (isRecord(data) && data.kind === "insight") noteReprinted(pending.id, now);
+      const insight = isRecord(data) && data.kind === "insight";
+      if (!insight) noteResolvedElsewhere(pending.id, now);
+      this.observe(name, args, door.body.result, now, read);
+      if (insight) noteReprinted(pending.id, now);
       return this.forward(id, door.body);
     }
-    if (isRecord(door.body.result)) this.observe(name, args, door.body.result, now);
+    if (isRecord(door.body.result)) this.observe(name, args, door.body.result, now, read);
     this.forward(id, door.body);
   }
 
@@ -658,13 +684,20 @@ export class Bridge {
     args: Record<string, unknown>,
     data: Record<string, unknown>,
     now: number,
+    read: TreeRead | undefined,
   ): void {
-    const session = this.lastSession;
-    this.lastSession = undefined;
     if (args.ask !== undefined) return;
+    const session = read?.session;
+    const sent = read?.sent;
     if (data.kind === "question") {
-      const handle = typeof data.handle === "string" ? data.handle : undefined;
-      noteShown({ via: "tool", project: this.project, session, handle, now });
+      noteShown({
+        via: "tool",
+        project: this.project,
+        session,
+        handle: str(data.handle),
+        now,
+        ...(sent ? { sent } : {}),
+      });
       return;
     }
     if (data.kind === "quiet") {
@@ -673,7 +706,8 @@ export class Bridge {
         via: "tool",
         outcome: "server-quiet",
         project: this.project,
-        top: session?.hints.touched ?? [],
+        top: [],
+        ...sentFields(sent, session),
       });
     }
   }
@@ -683,6 +717,7 @@ export class Bridge {
     args: Record<string, unknown>,
     result: Record<string, unknown>,
     now: number,
+    read: TreeRead | undefined,
   ): void {
     const data = isRecord(result.structuredContent) ? result.structuredContent : {};
     const textBlock = Array.isArray(result.content)
@@ -691,7 +726,7 @@ export class Bridge {
     const text = isRecord(textBlock) && typeof textBlock.text === "string" ? textBlock.text : "";
     if (name === "rep") {
       observeRep(data, text, now, this.project);
-      this.noteRepOutcome(args, data, now);
+      this.noteRepOutcome(args, data, now, read);
     }
     if (name === "answer")
       observeVerdict(typeof args.id === "string" ? args.id : undefined, data, text, now);

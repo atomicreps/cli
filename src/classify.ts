@@ -1,9 +1,9 @@
-import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import type { Deadline } from "./clock.js";
 import { HEAD_FACTOR, HEAD_LINES, MAX_WEIGHT, MIN_WEIGHT, TOUCHED_SENT } from "./constants.js";
+import { readJsonFile } from "./files.js";
 import { tokenize } from "./tokens.js";
 import { extensionOf, scoreFiles } from "./touch.js";
 import { type ChangedFile, isRecord, type TouchedEntry, type TouchGrammar } from "./types.js";
@@ -125,12 +125,12 @@ function vocabularySize(classifier: Classifier): number {
   return size;
 }
 
-export function posterior(
-  classifier: Classifier,
-  evidence: readonly Evidence[],
-  limit = TOUCHED_SENT,
-): Posterior {
-  const scores = logLikelihoodRatios(classifier, evidence).map((s) => s / classifier.temperature);
+export function posterior(classifier: Classifier, evidence: readonly Evidence[]): Posterior {
+  return posteriorOf(classifier, logLikelihoodRatios(classifier, evidence));
+}
+
+function posteriorOf(classifier: Classifier, ratios: Float64Array): Posterior {
+  const scores = ratios.map((s) => s / classifier.temperature);
   let max = -Infinity;
   for (const s of scores) if (s > max) max = s;
   if (!Number.isFinite(max)) return [];
@@ -143,7 +143,7 @@ export function posterior(
   return odds
     .map((e, c) => ({ key: classifier.classes[c] ?? "", p: e / sum }))
     .toSorted((a, b) => b.p - a.p)
-    .slice(0, limit);
+    .slice(0, TOUCHED_SENT);
 }
 
 export function evidenceOf(
@@ -151,26 +151,63 @@ export function evidenceOf(
   files: readonly ChangedFile[],
   prose: readonly string[],
 ): Evidence[] {
-  const { langs } = classifier;
   const present = files.filter((file) => file.status !== "deleted");
-  const exts = new Set(present.map((file) => extensionOf(file.path)));
-  const writtenIn = (ext: string) => (topic: string) => langs[topic]?.includes(ext) ?? true;
-  const out: Evidence[] = [];
-  for (const file of present) {
-    const allows = writtenIn(extensionOf(file.path));
-    out.push({ text: [file.path.replaceAll("/", " "), ...file.added], weight: 1, allows });
-    if (file.status === "modified" && file.head !== undefined) {
-      out.push({ text: file.head.slice(0, HEAD_LINES), weight: HEAD_FACTOR, allows });
-    }
-  }
-  if (prose.length > 0) {
-    out.push({
-      text: prose,
-      weight: 1,
-      allows: (topic) => langs[topic]?.some((ext) => exts.has(ext)) ?? true,
-    });
+  return [
+    ...present.flatMap((file) => fileEvidence(classifier, file)),
+    ...proseEvidence(classifier, present, prose),
+  ];
+}
+
+function fileEvidence(classifier: Classifier, file: ChangedFile): Evidence[] {
+  const ext = extensionOf(file.path);
+  const allows = (topic: string) => classifier.langs[topic]?.includes(ext) ?? true;
+  const out: Evidence[] = [
+    { text: [file.path.replaceAll("/", " "), ...file.added], weight: 1, allows },
+  ];
+  if (file.status === "modified" && file.head !== undefined) {
+    out.push({ text: file.head.slice(0, HEAD_LINES), weight: HEAD_FACTOR, allows });
   }
   return out;
+}
+
+function proseEvidence(
+  classifier: Classifier,
+  present: readonly ChangedFile[],
+  prose: readonly string[],
+): Evidence[] {
+  if (prose.length === 0) return [];
+  const exts = new Set(present.map((file) => extensionOf(file.path)));
+  const allows = (topic: string) => classifier.langs[topic]?.some((ext) => exts.has(ext)) ?? true;
+  return [{ text: prose, weight: 1, allows }];
+}
+
+const scoredFiles = new WeakMap<Classifier, WeakMap<ChangedFile, Float64Array>>();
+
+function fileScores(classifier: Classifier, file: ChangedFile): Float64Array {
+  let cache = scoredFiles.get(classifier);
+  if (cache === undefined) {
+    cache = new WeakMap();
+    scoredFiles.set(classifier, cache);
+  }
+  const known = cache.get(file);
+  if (known !== undefined) return known;
+  const scores = logLikelihoodRatios(classifier, fileEvidence(classifier, file));
+  cache.set(file, scores);
+  return scores;
+}
+
+function turnScores(
+  classifier: Classifier,
+  files: readonly ChangedFile[],
+  prose: readonly string[],
+): Float64Array {
+  const present = files.filter((file) => file.status !== "deleted");
+  const total = logLikelihoodRatios(classifier, proseEvidence(classifier, present, prose));
+  for (const file of present) {
+    const scores = fileScores(classifier, file);
+    for (let c = 0; c < total.length; c++) total[c] = (total[c] ?? 0) + (scores[c] ?? 0);
+  }
+  return total;
 }
 
 export function classifyTouched(
@@ -179,7 +216,7 @@ export function classifyTouched(
   prose: readonly string[],
 ): TouchedEntry[] {
   if (files.length === 0 && prose.length === 0) return [];
-  const ranked = posterior(classifier, evidenceOf(classifier, files, prose));
+  const ranked = posteriorOf(classifier, turnScores(classifier, files, prose));
   const top = ranked[0]?.p ?? 0;
   if (top <= 0) return [];
   return ranked
@@ -209,7 +246,7 @@ export function strongestFile(
   let best: { path: string; margin: number } | null = null;
   for (const file of files) {
     if (file.status === "deleted") continue;
-    const scores = logLikelihoodRatios(classifier, evidenceOf(classifier, [file], []));
+    const scores = fileScores(classifier, file);
     let target = -Infinity;
     let rest = -Infinity;
     scores.forEach((score, c) => {
@@ -234,20 +271,14 @@ let loaded: { classifier: Classifier | null } | undefined;
 
 export function loadClassifier(): Classifier | null {
   if (loaded !== undefined) return loaded.classifier;
-  let classifier: Classifier | null = null;
-  try {
-    const parsed: unknown = JSON.parse(readFileSync(countsPath(), "utf8"));
-    if (
-      isRecord(parsed) &&
-      typeof parsed.version === "string" &&
-      Array.isArray(parsed.classes) &&
-      isRecord(parsed.words)
-    ) {
-      classifier = parsed as Classifier;
-    }
-  } catch {
-    classifier = null;
-  }
+  const parsed = readJsonFile<Record<string, unknown>>(countsPath());
+  const classifier =
+    parsed !== null &&
+    typeof parsed.version === "string" &&
+    Array.isArray(parsed.classes) &&
+    isRecord(parsed.words)
+      ? (parsed as Classifier)
+      : null;
   loaded = { classifier };
   return classifier;
 }

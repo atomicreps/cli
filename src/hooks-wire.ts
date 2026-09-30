@@ -3,22 +3,26 @@ import { dirname, join } from "node:path";
 import { isAlpha } from "./config.js";
 import type { Applied } from "./connect.js";
 import { readJsonFile, readSettingsFile, type SettingsRead, writeSettingsFile } from "./files.js";
+import { pinnedCommand } from "./statusline-wire.js";
 import { isRecord } from "./types.js";
 
 export const HOOK_EVENTS = ["Stop", "UserPromptSubmit"] as const;
 
 const HOOK_TIMEOUT_S = 5;
 
-const COMMANDS = {
-  default: "npx -y atomicreps hook",
-  alpha: "npx -y atomicreps hook --alpha",
-} as const;
-
 export function hookCommand(): string {
-  return isAlpha() ? COMMANDS.alpha : COMMANDS.default;
+  return pinnedCommand("hook");
 }
 
-const OURS: ReadonlySet<string> = new Set(Object.values(COMMANDS));
+const OURS = /\batomicreps\b[^\n|]*\bhook\b/;
+
+function isOurs(command: string): boolean {
+  return OURS.test(command);
+}
+
+function oursHere(command: string): boolean {
+  return isOurs(command) && /\bhook --alpha\b/.test(command) === isAlpha();
+}
 
 type Settings = Record<string, unknown>;
 
@@ -50,14 +54,36 @@ export function claudePluginNames(settingsPath: string): string[] {
 export function hooksWired(path: string): boolean {
   const read = readSettings(path);
   if ("failed" in read) return false;
-  const command = hookCommand();
-  return HOOK_EVENTS.every((event) => commandsOf(read.settings, event).includes(command));
+  return HOOK_EVENTS.every((event) =>
+    commandsOf(read.settings, event).some((c) => oursHere(c) && c.includes("|| npx")),
+  );
 }
 
 export function hooksOurs(path: string): boolean {
   const read = readSettings(path);
   if ("failed" in read) return false;
-  return HOOK_EVENTS.some((event) => commandsOf(read.settings, event).some((c) => OURS.has(c)));
+  return HOOK_EVENTS.some((event) => commandsOf(read.settings, event).some(isOurs));
+}
+
+function withoutOurs(
+  groups: readonly unknown[],
+  mine: (command: string) => boolean,
+): { kept: unknown[]; removed: number } {
+  const kept: unknown[] = [];
+  let removed = 0;
+  for (const group of groups) {
+    if (!isRecord(group) || !Array.isArray(group.hooks)) {
+      kept.push(group);
+      continue;
+    }
+    const rest = group.hooks.filter(
+      (hook) => !(isRecord(hook) && typeof hook.command === "string" && mine(hook.command)),
+    );
+    removed += group.hooks.length - rest.length;
+    if (rest.length > 0)
+      kept.push(rest.length === group.hooks.length ? group : { ...group, hooks: rest });
+  }
+  return { kept, removed };
 }
 
 export function wireHooks(path: string, command = hookCommand()): Applied {
@@ -76,7 +102,7 @@ export function wireHooks(path: string, command = hookCommand()): Applied {
   let added = 0;
   for (const event of HOOK_EVENTS) {
     if (commandsOf(settings, event).includes(command)) continue;
-    const groups = Array.isArray(hooks[event]) ? hooks[event] : [];
+    const groups = withoutOurs(Array.isArray(hooks[event]) ? hooks[event] : [], oursHere).kept;
     const ours = { hooks: [{ type: "command", command, timeout: HOOK_TIMEOUT_S }] };
     next[event] = [...groups, ours];
     added += 1;
@@ -96,19 +122,9 @@ export function unwireHooks(path: string): Applied {
   for (const event of HOOK_EVENTS) {
     const groups = next[event];
     if (!Array.isArray(groups)) continue;
-    const kept: unknown[] = [];
-    for (const group of groups) {
-      if (!isRecord(group) || !Array.isArray(group.hooks)) {
-        kept.push(group);
-        continue;
-      }
-      const rest = group.hooks.filter(
-        (hook) => !(isRecord(hook) && typeof hook.command === "string" && OURS.has(hook.command)),
-      );
-      removed += group.hooks.length - rest.length;
-      if (rest.length > 0)
-        kept.push(rest.length === group.hooks.length ? group : { ...group, hooks: rest });
-    }
+    const taken = withoutOurs(groups, isOurs);
+    removed += taken.removed;
+    const kept = taken.kept;
     if (kept.length > 0) next[event] = kept;
     else delete next[event];
   }

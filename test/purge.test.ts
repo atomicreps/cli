@@ -25,7 +25,12 @@ describe("purging what this machine remembers", () => {
     const store = await import("../src/store.js");
     const config = await import("../src/config.js");
     config.writeConfig({ token: "arep_test" });
-    store.observeRep({ kind: "question", id: "q1", topicSlug: "react" }, "a block", Date.now());
+    store.observeRep(
+      { kind: "question", id: "q1", topicSlug: "react" },
+      "a block",
+      Date.now(),
+      configHome,
+    );
     store.writeStatusCache({ currentStreak: 3 }, Date.now());
     config.noteFailure("rep: timeout", Date.now());
     mkdirSync(join(configHome, "atomicreps"), { recursive: true });

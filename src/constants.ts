@@ -55,6 +55,7 @@ export const MAX_FILES_READ = 8;
 export const MAX_BYTES_PER_FILE = 8 * 1024;
 export const MAX_NEW_FILE_BYTES = 32 * 1024;
 export const MAX_CHANGED = 40;
+export const BATCH_STAMP_FILES = 3;
 export const MAX_DIFF_BYTES = 96 * 1024;
 export const MAX_IMPORTS_PER_FILE = 24;
 export const MAX_MANIFEST_DEPS = 60;
@@ -109,6 +110,7 @@ export const CONFIG_DIR_NAME = "atomicreps";
 export const FILES = {
   config: "config.json",
   errorLog: "last-error.log",
+  decisionsLog: "decisions.log",
   topics: "topics.json",
   grammar: "grammar.json",
   reps: "reps.json",

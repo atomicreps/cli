@@ -14,16 +14,21 @@ import { isRecord } from "./types.js";
 
 const OURS = /\batomicreps\b[^\n|]*\bstatusline\b/;
 
-function quoted(path: string): string {
+export function quoted(path: string): string {
   return `"${path.replaceAll('"', '\\"')}"`;
 }
 
-export function statusLineCommand(
+export function pinnedCommand(
+  sub: "statusline" | "hook",
   node = process.execPath,
   cli = resolve(process.argv[1] ?? "cli.js"),
 ): string {
   const flag = isAlpha() ? " --alpha" : "";
-  return `${quoted(node)} ${quoted(cli)} statusline${flag} 2>/dev/null || npx -y atomicreps statusline${flag}`;
+  return `${quoted(node)} ${quoted(cli)} ${sub}${flag} 2>/dev/null || npx -y atomicreps ${sub}${flag}`;
+}
+
+export function statusLineCommand(node?: string, cli?: string): string {
+  return pinnedCommand("statusline", node, cli);
 }
 
 export function statusLineWrapperPath(): string {

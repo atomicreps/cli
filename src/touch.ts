@@ -153,13 +153,40 @@ function resolved(
 }
 
 export function resolvePhrases(grammar: TouchGrammar, phrases: readonly unknown[]): TouchedEntry[] {
+  const keys = new Set(matchPhrases(grammar, phrases).matches.map((m) => m.key));
+  return [...keys].map((key) => ({ key, weight: PHRASE_WEIGHT }));
+}
+
+export type PhraseMatch = { readonly match: string; readonly key: string };
+
+export function matchPhrases(
+  grammar: TouchGrammar,
+  phrases: readonly unknown[],
+): { matches: PhraseMatch[]; unmatched: number } {
   const { words, handles } = compiled(grammar);
-  return resolved(phrases.slice(0, MAX_PHRASES), (phrase) => {
-    const text = phrase.slice(0, MAX_PHRASE_CHARS);
-    if (text === "") return undefined;
+  const matches: PhraseMatch[] = [];
+  let unmatched = 0;
+  for (const raw of phrases.slice(0, MAX_PHRASES)) {
+    if (typeof raw !== "string") continue;
+    const text = normalizeHint(raw).slice(0, MAX_PHRASE_CHARS);
+    if (text === "") continue;
     const hit = words.find(({ rule, re }) => text.includes(rule.words) && re.test(text));
-    return hit ? hit.rule.key : handles.has(text) ? text : undefined;
-  }).map((key) => ({ key, weight: PHRASE_WEIGHT }));
+    if (hit) matches.push({ match: hit.rule.words, key: hit.rule.key });
+    else if (handles.has(text)) matches.push({ match: text, key: text });
+    else unmatched += 1;
+  }
+  return { matches, unmatched };
+}
+
+export function weighNamed(
+  named: readonly TouchedEntry[],
+  inferred: readonly TouchedEntry[],
+): TouchedEntry[] {
+  const shown = new Set(inferred.map((e) => topicOf(e.key)));
+  const top = Math.max(0, ...inferred.map((e) => e.weight));
+  return named.map((entry) =>
+    shown.has(topicOf(entry.key)) ? { ...entry, weight: Math.max(entry.weight, top) } : entry,
+  );
 }
 
 export function resolveTopic(grammar: TouchGrammar, topic: string): string | undefined {

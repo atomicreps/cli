@@ -1,5 +1,12 @@
 import "./node-guard.js";
-import { launchChannel, readConfig, setChannel, signedInOn, writeConfig } from "./config.js";
+import {
+  configPath,
+  launchChannel,
+  readConfig,
+  setChannel,
+  signedInOn,
+  writeConfig,
+} from "./config.js";
 import { ENV } from "./constants.js";
 import { describeDecision, recentDecisions } from "./decisions.js";
 import { refreshGrammar, runHook } from "./hook.js";
@@ -8,7 +15,7 @@ import { serve } from "./mcp.js";
 import { isInteractive } from "./screen.js";
 import { statusLine } from "./statusline.js";
 import { purgeLocalData } from "./store.js";
-import { connect, doctor, home, login, unwire } from "./tui.js";
+import { accountName, connect, doctor, home, login, unwire } from "./tui.js";
 import { SERVER_VERSION } from "./version.js";
 
 const HELP = `atomicreps - one short rep about the thing you just built, inside your coding agent.
@@ -71,8 +78,12 @@ async function main(raw: string[]): Promise<number> {
       return -1;
     case "login": {
       const ok = await login(isInteractive());
-      if (ok)
-        process.stdout.write("Signed in. Run npx atomicreps connect to configure an editor.\n");
+      if (ok) {
+        const who = await accountName();
+        process.stdout.write(
+          `Signed in${who === null ? "" : ` as ${who}`} (${configPath()}). Run npx atomicreps connect to configure an editor.\n`,
+        );
+      }
       if (ok) pluginHint();
       return ok ? 0 : 1;
     }

@@ -356,6 +356,7 @@ describe("atomicreps hook", () => {
       { kind: "question", id: "q1", topicSlug: "react" },
       BLOCK,
       Date.now() - 10_000,
+      configHome,
     );
     const answerSpy = vi.fn(async (url: string, init?: RequestInit) => {
       expect(new URL(url).pathname).toBe("/mcp/answer");
@@ -408,6 +409,7 @@ describe("atomicreps hook", () => {
       { kind: "question", id: "q1", topicSlug: "react" },
       BLOCK,
       Date.now() - 10_000,
+      configHome,
     );
     const refused = vi.fn(
       async () =>
@@ -447,6 +449,7 @@ describe("atomicreps hook", () => {
         { kind: "question", id: `q${String(index)}`, topicSlug: "react" },
         BLOCK,
         Date.now() - 10_000,
+        configHome,
       );
       await hook.runHook(input(typed));
     }
@@ -462,6 +465,7 @@ describe("atomicreps hook", () => {
       { kind: "question", id: "q1", topicSlug: "react" },
       BLOCK,
       Date.now() - 20_000,
+      configHome,
     );
     store.observeVerdict(
       "q1",
@@ -617,7 +621,11 @@ describe("a pending rep belongs to one project", () => {
   it("a rep stored without a project counts everywhere while it is the newest", async () => {
     const { store } = await load();
     const now = Date.now();
-    store.observeRep({ kind: "question", id: "old", topicSlug: "react" }, BLOCK, now);
+    mkdirSync(join(configHome, "atomicreps"), { recursive: true });
+    writeFileSync(
+      join(configHome, "atomicreps", "reps.json"),
+      JSON.stringify({ reps: [{ id: "old", topicSlug: "react", text: BLOCK, servedAt: now }] }),
+    );
     expect(store.pendingRep(now, "/work/a")?.id).toBe("old");
     expect(store.pendingRep(now, "/work/b")?.id).toBe("old");
 
@@ -715,7 +723,12 @@ describe("a letter answers only the rep on screen", () => {
   it("an asked-for rep prints at the Stop, and the letter after it grades that rep", async () => {
     const { hook, config, store } = await load();
     config.writeConfig({ token: "arep_test", nextEligibleAt: Date.now() + 60_000 });
-    store.observeRep({ kind: "question", id: "q1", topicSlug: "react" }, BLOCK, Date.now());
+    store.observeRep(
+      { kind: "question", id: "q1", topicSlug: "react" },
+      BLOCK,
+      Date.now(),
+      configHome,
+    );
     store.observeVerdict(
       "q1",
       { status: "answered", correct: true, offer: [{ handle: "css.grid", name: "CSS · Grid" }] },
@@ -756,6 +769,7 @@ describe("a letter answers only the rep on screen", () => {
       { kind: "question", id: "q1", topicSlug: "react" },
       BLOCK,
       Date.now() - 10_000,
+      configHome,
     );
     const bodies: unknown[] = [];
     vi.stubGlobal(
@@ -819,7 +833,12 @@ describe("a turn boundary inside the work", () => {
   it("does nothing at all in a headless run, and leaves the person's armed rep alone", async () => {
     const { hook, config, store } = await load();
     config.writeConfig({ token: "arep_test", armedRep: { id: "q1" } });
-    store.observeRep({ kind: "question", id: "q1", topicSlug: "react" }, BLOCK, Date.now());
+    store.observeRep(
+      { kind: "question", id: "q1", topicSlug: "react" },
+      BLOCK,
+      Date.now(),
+      configHome,
+    );
     const door = vi.fn();
     vi.stubGlobal("fetch", door);
     process.env.CLAUDE_CODE_ENTRYPOINT = "sdk-cli";

@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.0.21
+
+- When your agent shows you a question it got from the `rep` tool and you reply with a letter, the Claude Code hook now grades the letter. Before this, the letter went to the agent, which spent a turn calling the `answer` tool.
+- While a question is still on screen, the status line shows the question without its four options. A long question with a code block no longer pushes its own first line off the top of the terminal. The options come back after you send your next message.
+- `npx atomicreps connect` now runs the end-of-turn hook from the copy of atomicreps installed on your machine, as it already did for the status line, instead of through `npx`. Claude Code gives the hook 5 seconds, and an `npx` run that had to download the package could take longer, so no question appeared. If the installed copy moves, the hook falls back to `npx`. Running `connect` again replaces an older `npx` hook entry instead of adding a second one.
+- `login` now says which account this machine is signed in as, and which config file holds it, before you approve a new sign-in. Afterwards it names the new account and the file. `doctor` shows the signed-in account.
+- Outside a git repository, files that share one exact modification time no longer count as your recent work. Unpacking an archive or copying with `rsync -a` gives every file the same time, so before this a React edit in such a folder could get a Docker Compose question because `docker-compose.yml` had the same time as everything else.
+- When your agent names the work, for example "query optimization", and the changed files show the same technology, the agent's phrase now decides which part of that technology the question is about. Before this, an N+1 fix got a basic SELECT question, because every changed line was a SELECT statement. `atomicreps why` also shows which catalog words each phrase matched.
+- An N+1 query fix now leads to a SQL optimization question instead of a GraphQL batching question.
+- Common words such as "query", "order" and "default" no longer count extra toward one topic. They got that extra weight from hand-written phrases like "n+1 query" and "tab order", which the classifier split into single words. Only the words of the catalog's own sub-skill names, and single terms such as `monkeypatch`, still add that weight.
+- "Skipping a lot lately?" is now the last line of the question block. Before this, it sat between the options and "From memory. Reply with a letter."
+
 ## 0.0.20
 
 - The question is chosen by a classifier trained on the 141,000 questions in the Atomic Reps catalog, instead of a hand-written keyword list. It reads the lines each changed file added (all of a new file), the start of each changed file, and the agent's summary of the turn, and it works out how likely each topic is to be what the work was about. A word only counts for a language's topics inside a file of that language, so `await` in a Python file no longer points at C#. The package now ships the counts in `classifier/counts.json`; the words in it are stored as numbers, not text.

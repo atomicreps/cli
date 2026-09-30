@@ -82,11 +82,15 @@ export function errorLogPath(): string {
   return join(configDir(), FILES.errorLog);
 }
 
+export function decisionsLogPath(): string {
+  return join(configDir(), FILES.decisionsLog);
+}
+
 export function readConfig(): Config {
   return readJsonFile<Config>(configPath()) ?? {};
 }
 
-function ensureConfigDir(): string {
+export function ensureConfigDir(): string {
   const dir = configDir();
   ensureDir(dir);
   return dir;

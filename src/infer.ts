@@ -9,6 +9,7 @@ import {
   INFER_BUDGET_MS,
   TUI_INFER_BUDGET_MS,
   MAX_BYTES_PER_FILE,
+  BATCH_STAMP_FILES,
   MAX_CHANGED,
   MAX_SCAN_DEPTH,
   MAX_SCAN_FILES,
@@ -113,8 +114,11 @@ function scanRecent(
     }
   }
   const byRecency = found.toSorted((a, b) => b.mtime - a.mtime);
+  const sharing = new Map<number, number>();
+  for (const { mtime } of byRecency) sharing.set(mtime, (sharing.get(mtime) ?? 0) + 1);
+  const worked = byRecency.filter((entry) => (sharing.get(entry.mtime) ?? 0) < BATCH_STAMP_FILES);
   return {
-    files: byRecency.slice(0, MAX_CHANGED).map((entry) => entry.rel),
+    files: worked.slice(0, MAX_CHANGED).map((entry) => entry.rel),
     mark: fingerprint(byRecency.map((e) => `${e.rel}:${e.mtime}:${e.size}`).join("|")),
   };
 }
@@ -189,13 +193,22 @@ export type Session = {
   files: readonly ChangedFile[];
 };
 
-function stampOf(root: string, path: string): string {
+function stampOf(root: string, path: string): { stamp: string; mtime?: number } {
   try {
     const stat = statSync(join(root, path));
-    return `${String(stat.mtimeMs)}:${String(stat.size)}`;
+    return { stamp: `${String(stat.mtimeMs)}:${String(stat.size)}`, mtime: stat.mtimeMs };
   } catch {
-    return "gone";
+    return { stamp: "gone" };
   }
+}
+
+function mtimesOf(root: string, paths: readonly string[]): Map<string, number> {
+  const mtimes = new Map<string, number>();
+  for (const path of paths) {
+    const { mtime } = stampOf(root, path);
+    if (mtime !== undefined) mtimes.set(path, mtime);
+  }
+  return mtimes;
 }
 
 const NOTHING: LocalHints = { packages: [], extensions: [], touched: [] };
@@ -228,6 +241,7 @@ function hintsOf(
   root: string,
   cwd: string,
   changes: readonly Change[],
+  mtimes: ReadonlyMap<string, number>,
   diff: string,
   deadline: clock.Deadline,
   grammar: TouchGrammar | null,
@@ -245,14 +259,10 @@ function hintsOf(
   const added = addedByFile(diff);
   const byRecency = changes
     .filter((change) => change.status !== "deleted")
-    .map((change) => {
-      try {
-        return { change, mtime: statSync(join(root, change.path)).mtimeMs };
-      } catch {
-        return null;
-      }
+    .flatMap((change) => {
+      const mtime = mtimes.get(change.path);
+      return mtime === undefined ? [] : [{ change, mtime }];
     })
-    .filter((entry): entry is { change: Change; mtime: number } => entry !== null)
     .toSorted((a, b) => b.mtime - a.mtime);
   const files: ChangedFile[] = [];
   for (const [index, { change }] of byRecency.entries()) {
@@ -317,7 +327,12 @@ export async function inferSession(
       : scan.files.filter(isSafeRepoPath).map((path) => ({ path, status: "added" }));
 
   const snapshot: Record<string, string> = {};
-  for (const change of listed) snapshot[change.path] = stampOf(root, change.path);
+  const mtimes = new Map<string, number>();
+  for (const change of listed) {
+    const { stamp, mtime } = stampOf(root, change.path);
+    snapshot[change.path] = stamp;
+    if (mtime !== undefined) mtimes.set(change.path, mtime);
+  }
   const since = previous?.snapshot;
   const changes =
     since === undefined
@@ -350,7 +365,7 @@ export async function inferSession(
     return { hints: NOTHING, mark, snapshot, unchanged: true, files: [] };
   }
   return {
-    ...hintsOf(root, cwd, changes, diff, deadline, grammar, prose),
+    ...hintsOf(root, cwd, changes, mtimes, diff, deadline, grammar, prose),
     mark,
     snapshot,
     unchanged: false,
@@ -397,7 +412,7 @@ export async function inferCommit(
       : "";
   const changes = changed.map((path): Change => ({ path, status: "modified" }));
   return {
-    ...hintsOf(root, cwd, changes, diff, deadline, grammar, []),
+    ...hintsOf(root, cwd, changes, mtimesOf(root, changed), diff, deadline, grammar, []),
     mark: fingerprint(`${hash}|${changedRaw}`),
     snapshot: {},
     unchanged: false,

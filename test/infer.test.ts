@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -217,6 +217,18 @@ describe("a folder that is not a repository", () => {
 
     writeFileSync(join(dir, "linked_list.py"), "class Node:\n    def pop(self): pass\n");
     expect((await inferSession(dir, 200)).mark).not.toBe(first.mark);
+  });
+
+  it("reads the edited file and not the batch an unpack stamped with one time", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "atomicreps-unpacked-"));
+    const unpacked = new Date("2026-01-01T00:00:00Z");
+    for (const name of ["docker-compose.yml", "Dockerfile", "README.md", "server.py"]) {
+      writeFileSync(join(dir, name), "x\n");
+      utimesSync(join(dir, name), unpacked, unpacked);
+    }
+    writeFileSync(join(dir, "SearchBar.tsx"), "export const a = 1;\n");
+    const session = await inferSession(dir, 500, KNOWS);
+    expect(session.files.map((f) => f.path)).toEqual(["SearchBar.tsx"]);
   });
 
   it("refuses rather than half-reads a folder past its limit", async () => {

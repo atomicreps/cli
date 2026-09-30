@@ -153,6 +153,7 @@ export type Config = {
   setupAt?: EpochMs;
   pushed?: Record<string, Pushed> | undefined;
   armedRep?: { id: string } | undefined;
+  lastPromptAt?: EpochMs | undefined;
   held?: HeldBlock | undefined;
   backgroundSeen?: Record<string, EpochMs> | undefined;
   bridgeVersion?: string | undefined;
