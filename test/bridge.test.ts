@@ -466,13 +466,22 @@ describe("the stdio bridge", () => {
     expect(final.result.content[0]?.text).toContain("Correct");
   });
 
-  it("says to sign in rather than answering an empty list when the server refuses the token", async () => {
+  it("lists the four tools when the server refuses the token, and says to sign in on the call", async () => {
     const door = fakeDoor(() => "401");
     const { out, send } = await bridgeWith(door);
     await send({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} });
-    const answer = out[0] as { result?: unknown; error?: { code: number; message: string } };
-    expect(answer.result, "an empty list would be silent").toBeUndefined();
-    expect(answer.error?.message).toContain("npx atomicreps login");
+    const tools = (out[0] as { result: { tools: Array<{ name: string }> } }).result.tools;
+    expect(tools.map((t) => t.name)).toEqual(["rep", "answer", "me", "settings"]);
+
+    await send({
+      jsonrpc: "2.0",
+      id: 2,
+      method: "tools/call",
+      params: { name: "rep", arguments: {} },
+    });
+    const rep = out[1] as { result: { isError?: boolean; content: Array<{ text: string }> } };
+    expect(rep.result.isError).toBe(true);
+    expect(rep.result.content[0]?.text).toContain("npx atomicreps login");
   });
 
   it("stays connected through a blip AND still offers the four tools", async () => {
@@ -569,19 +578,26 @@ describe("the stdio bridge", () => {
     expect((out[5] as { error: { code: number } }).error.code).toBe(-32_000);
   });
 
-  it("a revoked token is unauthorized: rep backs the clock off an hour and says so in the store", async () => {
+  it("a revoked token is unauthorized: rep says to sign in once, then stays quiet for the hour", async () => {
     const door = fakeDoor(() => "401");
-    const { send } = await bridgeWith(door);
+    const { out, send } = await bridgeWith(door);
     const { readConfig } = await import("../src/config.js");
     await send({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} });
-    await send({
-      jsonrpc: "2.0",
-      id: 2,
-      method: "tools/call",
-      params: { name: "rep", arguments: {} },
-    });
+    const call = { name: "rep", arguments: {} };
+    await send({ jsonrpc: "2.0", id: 2, method: "tools/call", params: call });
     expect((readConfig().nextEligibleAt ?? 0) - Date.now()).toBeGreaterThan(50 * 60_000);
-    expect(readConfig().lastQuiet).toContain("unauthorized");
+    const first = out.find((m) => (m as { id?: unknown }).id === 2) as {
+      result: { content: Array<{ text: string }> };
+    };
+    expect(first.result.content[0]?.text).toContain("npx atomicreps login");
+
+    const calls = door.seen.length;
+    await send({ jsonrpc: "2.0", id: 3, method: "tools/call", params: call });
+    const second = out.find((m) => (m as { id?: unknown }).id === 3) as {
+      result: { structuredContent: { kind: string } };
+    };
+    expect(second.result.structuredContent.kind).toBe("quiet");
+    expect(door.seen.length, "the hour's backoff never reaches the server").toBe(calls);
   });
 
   it("keeps rep on the tool list while a rep is pending", async () => {

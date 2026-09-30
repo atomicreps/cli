@@ -1,17 +1,17 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.atomicreps/atomicreps",
-  "description": "One short retrieval question about the thing you just built, for you. Claude Code, GitHub Copilot, Cursor, Codex, any MCP client.",
+  "description": "Retrieval practice in your coding agent: one short question about what you just built.",
   "repository": {
     "url": "https://github.com/atomicreps/cli",
     "source": "github"
   },
-  "version": "0.0.21",
+  "version": "0.1.0",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "atomicreps",
-      "version": "0.0.21",
+      "version": "0.1.0",
       "runtimeHint": "npx",
       "transport": {
         "type": "stdio"

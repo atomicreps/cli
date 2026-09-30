@@ -362,12 +362,12 @@ export class Bridge {
     now: clock.EpochMs,
   ): void {
     noteFailure(`${method}: ${reason}`, now);
-    if (isTerminal(reason)) {
-      this.fail(id, -32_001, TERMINAL_MESSAGE[reason]());
+    const list = reason === "misrouted" ? undefined : DEGRADED_LIST[method];
+    if (list) {
+      this.reply(id, list);
       return;
     }
-    const list = DEGRADED_LIST[method];
-    if (list) this.reply(id, list);
+    if (isTerminal(reason)) this.fail(id, -32_001, TERMINAL_MESSAGE[reason]());
     else this.fail(id, -32_000, unreachableText(reason));
   }
 
@@ -597,14 +597,16 @@ export class Bridge {
     if (!door.ok) {
       if (door.reason === "cancelled") return;
       noteFailure(`${name}: ${door.reason}`, now);
-      if (name !== "rep" || door.reason === "misrouted") {
+      if (name !== "rep" || isTerminal(door.reason)) {
+        if (name === "rep" && door.reason === "unauthorized") {
+          updateConfig({ nextEligibleAt: now + UNAUTHORIZED_BACKOFF_MS });
+        }
         const text = isTerminal(door.reason)
           ? TERMINAL_MESSAGE[door.reason]()
           : unreachableText(door.reason);
         return this.reply(id, { content: [{ type: "text", text }], isError: true });
       }
-      const nextEligibleAt =
-        now + (door.reason === "unauthorized" ? UNAUTHORIZED_BACKOFF_MS : DEGRADED_BACKOFF_MS);
+      const nextEligibleAt = now + DEGRADED_BACKOFF_MS;
       updateConfig({ nextEligibleAt });
       noteQuiet("degraded", door.reason, now);
       return this.reply(id, {

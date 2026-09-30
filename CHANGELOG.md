@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.0
+
+- You can connect without installing this package. `https://atomicreps.com/mcp` now signs you in through your browser, so a client that supports that, such as Claude Code, needs one command: `claude mcp add --transport http atomicreps https://atomicreps.com/mcp`. The package still works as before, and the hook and status line still come only with `npx atomicreps connect`.
+- Before you sign in, the server now lists its four tools instead of answering the tool list with an error. Your editor and the MCP directories show what the server does before you have an account. The first `rep` call says to run `npx atomicreps login`, and then `rep` stays quiet for an hour so the line does not repeat every turn. Signing in ends the wait at once.
+- The server is listed in the official MCP registry as `io.github.atomicreps/atomicreps`, with both ways to connect.
+
 ## 0.0.21
 
 - When your agent shows you a question it got from the `rep` tool and you reply with a letter, the Claude Code hook now grades the letter. Before this, the letter went to the agent, which spent a turn calling the `answer` tool.
