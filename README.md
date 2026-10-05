@@ -1,18 +1,55 @@
 # atomicreps
 
-One short question about the thing you just built. Works inside Claude Code, GitHub Copilot, Cursor, Codex, or any MCP client.
+[![Listed on mcpservers.org](https://mcpservers.org/badge.svg)](https://mcpservers.org/servers/atomicreps/cli)
+[![npm](https://img.shields.io/npm/v/atomicreps)](https://www.npmjs.com/package/atomicreps)
+
+One short question about the thing you just built. Works inside Claude Code, GitHub Copilot, Cursor, Windsurf, Codex, or any MCP client.
+
+You describe a bug, your coding agent changes the code, and Atomic Reps asks you one multiple-choice question about that change. You answer with a letter, from memory, and the server grades it.
+
+The two-minute demo: four bugs fixed in Claude Code, one question after each.
+
+https://github.com/user-attachments/assets/521c1bb3-9f75-4c25-8b71-ed763de7debc
+
+## Quick start
 
 Requires Node 24+ and a free account. On an older Node, every command prints
 the version it needs instead of starting.
 
 ```
-npx atomicreps            the terminal screen: you, this session, topics, mutes, rate
-npx atomicreps setup      first-run wizard: areas, topics, how often, how hard
+npx atomicreps
+```
+
+The first run is a setup wizard:
+
+1. Pick what to practise, how often, and how hard.
+2. Sign in: the terminal prints a code, and you type it at atomicreps.com/connect.
+3. Pick your editors. `connect` writes only the entries you tick.
+
+Then go back to work. When your agent finishes a task that changed files, the
+question appears after its answer:
+
+![Claude Code fixes an N+1 query, then Atomic Reps asks a question about SQL joins](https://raw.githubusercontent.com/atomicreps/cli/master/media/rep.png)
+
+Type the letter. The verdict comes back with a one-line explanation, and the
+next line names up to three other topics the session touched:
+
+![The verdict: correct, with the explanation and the topics the session also touched](https://raw.githubusercontent.com/atomicreps/cli/master/media/verdict.png)
+
+Every run after the first opens the terminal screen: your streak, this session,
+your topics, mutes and rate.
+
+## Commands
+
+```
+npx atomicreps            the terminal screen; the setup wizard on the first run
+npx atomicreps setup      the setup wizard again: areas, topics, how often, how hard
 npx atomicreps login      sign in from a browser with a typed code
 npx atomicreps connect    register the server with your editor
 npx atomicreps connect --pin   pin the launch args to this installed version, for a command you can commit
 npx atomicreps mcp        the stdio MCP server process (what the editor launches)
 npx atomicreps doctor     token, server ping, version, when the next rep may come, allowlist
+npx atomicreps why        the last ten times a question could have appeared, and why it did or did not
 npx atomicreps logout     forget the token on this machine
 npx atomicreps logout --purge   also forget your reps and status, and offer to undo connect
 ```
@@ -25,6 +62,28 @@ whatever is latest at launch. `connect --pin` writes `npx -y
 atomicreps@<version> mcp` instead, the version this CLI is running, so an
 organisation can review one exact command and commit it rather than trusting
 npx to fetch the same thing twice.
+
+## Claude Code
+
+`npx atomicreps connect` offers four Claude Code rows:
+
+- **Claude Code** registers the server at user scope.
+- **…and a question at the end of each turn** adds a `Stop` hook and a
+  `UserPromptSubmit` hook to `~/.claude/settings.json`. When Claude finishes a
+  turn that changed files, the question prints in your terminal without Claude
+  taking an extra turn, and the letter you type next is graded. Hooks you
+  already have stay.
+- **…and allow its four tools** adds `rep`, `answer`, `me` and `settings` to
+  `permissions.allow`, so the first question does not stop on a permission
+  prompt.
+- **…and a Claude Code status line** shows the open question under the prompt.
+  A status line you already have keeps printing first.
+
+Without `connect`, the server alone:
+
+```
+claude mcp add --scope user atomicreps -- npx -y atomicreps mcp
+```
 
 ## GitHub Copilot
 
@@ -50,6 +109,27 @@ commit it as `.vscode/mcp.json` so every clone has it:
 Copilot reads the server's instructions and calls `rep` when a task ends,
 the same as Cursor and Codex. Approve the four tools once and they stay
 approved.
+
+## Cursor, Windsurf, Codex and other clients
+
+`connect` adds one entry to `~/.cursor/mcp.json` or
+`~/.codeium/windsurf/mcp_config.json`, and runs `codex mcp add` for Codex.
+Anything already in those files stays. By hand:
+
+```
+codex mcp add atomicreps -- npx -y atomicreps mcp
+```
+
+```json
+{
+  "mcpServers": {
+    "atomicreps": { "command": "npx", "args": ["-y", "atomicreps", "mcp"] }
+  }
+}
+```
+
+Any other MCP client takes the same command: `npx -y atomicreps mcp`. The
+"I'll set it up myself" row in `connect` prints it and writes nothing.
 
 ## How a rep is served
 
